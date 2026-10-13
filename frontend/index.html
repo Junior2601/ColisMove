@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover : la barre de navigation du bas respecte la zone de l'iPhone (env(safe-area-inset-bottom)) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>MoveColis — Voyage & expédition de colis</title>
+    <meta
+      name="description"
+      content="Envoyez vos colis avec les kilos disponibles des voyageurs : réservez, échangez dans la messagerie et suivez votre colis jusqu'à la livraison."
+    />
+
+    <!-- Icônes -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+    <!-- Application installable (PWA) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#F26122" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="MoveColis" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+    <!-- Aperçu des liens partagés (WhatsApp, Facebook, LinkedIn…) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:site_name" content="MoveColis" />
+    <meta property="og:title" content="MoveColis — Voyage & expédition de colis" />
+    <meta property="og:description" content="Réservez des kilos sur les vols des voyageurs et suivez vos colis." />
+    <!-- ⚠️ Après la mise en ligne : remplacer par l'adresse complète, ex. https://movecolis.com/brand/og-image.png -->
+    <meta property="og:image" content="/brand/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

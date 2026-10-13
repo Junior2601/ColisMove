@@ -1,0 +1,273 @@
+# Tests rapides avec l'extension VS Code "REST Client" (humao.rest-client)
+# Lancez d'abord la requête "login" : le token est ensuite réutilisé automatiquement.
+
+@base = http://localhost:4000/api
+
+# @name login
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "identifier": "admin@movecolis.com", "password": "ChangeMoi123!" }
+
+###
+@token = {{login.response.body.token}}
+
+### Inscription client (connecté directement : token renvoyé)
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{
+  "role": "CLIENT",
+  "firstName": "Koffi",
+  "lastName": "Yao",
+  "email": "koffi@exemple.com",
+  "phone": "+225 07 11 22 33 44",
+  "password": "MotDePasse123",
+  "acceptTerms": true
+}
+
+### Inscription voyageur (PENDING : pas de token, approbation admin requise)
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{
+  "role": "VOYAGEUR",
+  "firstName": "Ali",
+  "lastName": "Ouattara",
+  "email": "ali@exemple.com",
+  "phone": "+7 900 123 45 67",
+  "city": "Rostov-sur-le-Don",
+  "password": "MotDePasse123",
+  "acceptTerms": true
+}
+
+### Connexion avec le numéro de téléphone (compte de démo, mot de passe Demo1234!)
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "identifier": "+33 7 00 00 00 00", "password": "Demo1234!" }
+
+### Mon compte
+GET {{base}}/auth/me
+Authorization: Bearer {{token}}
+
+### Stats du tableau de bord
+GET {{base}}/admin/stats
+Authorization: Bearer {{token}}
+
+### Stats des acteurs
+GET {{base}}/admin/stats/actors
+Authorization: Bearer {{token}}
+
+### Tous les voyages (filtres : q, ownerRole=ADMIN|VOYAGEUR, ownerId, status, period=upcoming|past)
+GET {{base}}/admin/trips?period=upcoming
+Authorization: Bearer {{token}}
+
+### Créer un voyage (heures LOCALES de chaque ville)
+POST {{base}}/admin/trips
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "departureCity": "Abidjan",
+  "departureAt": "2026-12-20T08:45",
+  "stopCity": "Istanbul",
+  "stopDuration": "3h20",
+  "arrivalCity": "Moscou",
+  "arrivalAt": "2026-12-20T22:10",
+  "kilosTotal": 23,
+  "pricePerKilo": 9500,
+  "currency": "XOF"
+}
+
+### Modifier un de MES voyages
+PATCH {{base}}/admin/trips/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "pricePerKilo": 9000 }
+
+### Annuler un voyage (n'importe lequel : modération)
+PATCH {{base}}/admin/trips/2/cancel
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Vol annulé par la compagnie" }
+
+### Réservations (filtres : tripId, status=PENDING,CONFIRMED, q)
+GET {{base}}/admin/reservations?status=PENDING,CONFIRMED
+Authorization: Bearer {{token}}
+
+### Détail d'une réservation + historique de suivi
+GET {{base}}/admin/reservations/1
+Authorization: Bearer {{token}}
+
+### Changer le statut d'une réservation
+PATCH {{base}}/admin/reservations/1/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "CONFIRMED", "note": "Confirmé par messagerie" }
+
+### Voyageurs en attente
+GET {{base}}/admin/travelers?status=PENDING
+Authorization: Bearer {{token}}
+
+### Approuver / refuser / révoquer un voyageur
+PATCH {{base}}/admin/travelers/2/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "APPROVED" }
+
+### Paramètres
+GET {{base}}/admin/settings
+Authorization: Bearer {{token}}
+
+### Modifier les paramètres
+PATCH {{base}}/admin/settings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "supportWhatsapp": "+225 07 12 34 56 78",
+  "reservationMessageTemplate": "Bonjour ! Je réserve {kilos} kg sur {trajet} du {date}. Nom : {nom}. Suivi : {code}."
+}
+
+############################################################
+#  Public (sans compte) : voyages, réservation, suivi
+############################################################
+
+### Voyages réservables (filtres : q, from, to, city, direct=true, week=true)
+GET {{base}}/public/trips?from=Abidjan&to=Moscou
+
+### Détail d'un voyage
+GET {{base}}/public/trips/1
+
+### Réserver en visiteur → { reservation, conversationId, guestToken }
+# @name reservation
+POST {{base}}/public/reservations
+Content-Type: application/json
+
+{
+  "tripId": 1,
+  "clientName": "Koné Awa",
+  "clientPhone": "+225 07 12 34 56 78",
+  "parcelDescription": "Vêtements",
+  "kilos": 2
+}
+
+###
+@conversationId = {{reservation.response.body.conversationId}}
+@guestToken = {{reservation.response.body.guestToken}}
+
+### Suivi public (grandes étapes) — le suivi détaillé exige d'être connecté et concerné
+GET {{base}}/public/tracking/{{reservation.response.body.reservation.trackingCode}}
+
+############################################################
+#  Messagerie (REST ; le temps réel passe par Socket.io)
+############################################################
+
+### Conversation vue par le visiteur (jeton reçu à la réservation)
+GET {{base}}/conversations/{{conversationId}}
+X-Guest-Token: {{guestToken}}
+
+### Messages
+GET {{base}}/conversations/{{conversationId}}/messages?limit=30
+X-Guest-Token: {{guestToken}}
+
+### Envoyer un message (secours sans Socket.io)
+POST {{base}}/conversations/{{conversationId}}/messages
+X-Guest-Token: {{guestToken}}
+Content-Type: application/json
+
+{ "body": "Je peux déposer le colis samedi matin ?" }
+
+### Boîte de réception de l'admin (toutes, ou scope=mine)
+GET {{base}}/conversations?scope=all
+Authorization: Bearer {{token}}
+
+### Non-lus (badge)
+GET {{base}}/conversations/unread-count
+Authorization: Bearer {{token}}
+
+### Le propriétaire confirme depuis la conversation (message système + temps réel)
+PATCH {{base}}/conversations/{{conversationId}}/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "CONFIRMED", "note": "Remise samedi à Cocody" }
+
+############################################################
+#  Espace voyageur (connectez-vous avec un voyageur approuvé)
+#  Démo : "+33 7 00 00 00 00" / Demo1234!
+############################################################
+
+# @name loginVoyageur
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "identifier": "+33 7 00 00 00 00", "password": "Demo1234!" }
+
+###
+@vtoken = {{loginVoyageur.response.body.token}}
+
+### Tableau de bord
+GET {{base}}/voyageur/stats
+Authorization: Bearer {{vtoken}}
+
+### Mes voyages (period=upcoming|past)
+GET {{base}}/voyageur/trips?period=upcoming
+Authorization: Bearer {{vtoken}}
+
+### Réservations reçues (avec non-lus de chaque conversation)
+GET {{base}}/voyageur/reservations?status=PENDING,CONFIRMED
+Authorization: Bearer {{vtoken}}
+
+### Confirmer une réservation sur un de mes voyages
+PATCH {{base}}/voyageur/reservations/2/status
+Authorization: Bearer {{vtoken}}
+Content-Type: application/json
+
+{ "status": "RECEIVED", "note": "Colis pesé : 10 kg" }
+
+### Supprimer un voyage sans réservation (sinon : annuler)
+DELETE {{base}}/voyageur/trips/3
+Authorization: Bearer {{vtoken}}
+
+############################################################
+#  Profil (tous les rôles)
+############################################################
+
+### Modifier mes informations
+PATCH {{base}}/auth/me
+Authorization: Bearer {{vtoken}}
+Content-Type: application/json
+
+{ "city": "Lyon" }
+
+### Changer mon mot de passe
+PATCH {{base}}/auth/me/password
+Authorization: Bearer {{vtoken}}
+Content-Type: application/json
+
+{ "currentPassword": "Demo1234!", "newPassword": "NouveauMotDePasse1" }
+
+############################################################
+#  Notifications (centre de notifications + push)
+############################################################
+
+### Compteurs de l'en-tête : { notifications, messages }
+GET {{base}}/notifications/counts
+Authorization: Bearer {{token}}
+
+### Centre de notifications
+GET {{base}}/notifications?limit=20
+Authorization: Bearer {{token}}
+
+### Tout marquer comme lu
+POST {{base}}/notifications/read-all
+Authorization: Bearer {{token}}
+
+### Configuration push (clé publique VAPID)
+GET {{base}}/push/public-key
