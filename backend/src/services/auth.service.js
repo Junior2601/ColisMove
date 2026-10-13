@@ -1,6 +1,10 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
+import { withTransaction } from "../config/db.js";
+import * as resetModel from "../models/passwordReset.model.js";
+import * as mailService from "./mail.service.js";
+import { generateToken, hashToken } from "../utils/token.js";
 import * as userModel from "../models/user.model.js";
 import { normalizePhone } from "../utils/phone.js";
 import { TERMS_VERSION } from "../config/constants.js";
@@ -100,5 +104,64 @@ export async function changePassword(userId, { currentPassword, newPassword }) {
     ]);
   }
   await userModel.updatePassword(userId, await bcrypt.hash(newPassword, 12));
+
+  // Les autres appareils sont déconnectés ; celui-ci reçoit une nouvelle session
+  const user = await userModel.findById(userId);
+  realtime.disconnectUser(userId);
+  mailService.sendPasswordChanged(user).catch((err) => console.error("[mail]", err.message));
+  return { token: signToken(user) };
+}
+
+/* ===================== Mot de passe oublié ===================== */
+
+const RESET_TTL_MINUTES = 30;
+const RESET_COOLDOWN_SECONDS = 60;
+const INVALID_RESET_LINK = "Ce lien n'est plus valable (expiré ou déjà utilisé). Demandez-en un nouveau.";
+
+// "paul.landry@gmail.com" → "pa*********@gmail.com" (rassure sans tout dévoiler)
+const maskEmail = (email) => {
+  const [local, domain] = email.split("@");
+  return `${local.slice(0, 2)}${"*".repeat(Math.max(local.length - 2, 1))}@${domain}`;
+};
+
+/**
+ * Demande de réinitialisation (e-mail ou téléphone).
+ * Ne révèle jamais si le compte existe : le contrôleur répond pareil dans tous les cas,
+ * sans attendre cette fonction (même temps de réponse).
+ */
+export async function requestPasswordReset({ identifier }, { ip = null } = {}) {
+  const user = identifier.includes("@")
+    ? await userModel.findByEmailWithPassword(identifier.toLowerCase())
+    : await userModel.findByPhoneWithPassword(normalizePhone(identifier));
+  if (!user || user.status === "REJECTED") return;
+  if (await resetModel.requestedRecently(user.id, RESET_COOLDOWN_SECONDS)) return; // anti-inondation
+
+  const token = generateToken(32);
+  await resetModel.create({ userId: user.id, tokenHash: hashToken(token), ttlMinutes: RESET_TTL_MINUTES, ip });
+  // Jeton dans l'ancre (#) : jamais envoyé aux serveurs, absent des journaux et des en-têtes Referer
+  await mailService.sendPasswordReset(user, `${env.appUrl}/mot-de-passe/reinitialiser#${token}`, RESET_TTL_MINUTES);
+}
+
+/** Le lien est-il encore valable ? (affiche le formulaire ou "lien expiré") */
+export async function checkResetToken({ token }) {
+  const reset = await resetModel.findValid(hashToken(token));
+  if (!reset) throw badRequest(INVALID_RESET_LINK);
+  return { valid: true, email: maskEmail(reset.email) };
+}
+
+/** Nouveau mot de passe : lien consommé, toutes les sessions déconnectées, alerte par e-mail */
+export async function resetPassword({ token, password }) {
+  const passwordHash = await bcrypt.hash(password, 12);
+  const userId = await withTransaction(async (db) => {
+    const reset = await resetModel.findValidForUpdate(hashToken(token), db);
+    if (!reset) throw badRequest(INVALID_RESET_LINK);
+    await userModel.updatePassword(reset.userId, passwordHash, db);
+    await resetModel.markUsed(reset.id, db);
+    return reset.userId;
+  });
+
+  realtime.disconnectUser(userId);
+  const user = await userModel.findById(userId);
+  mailService.sendPasswordChanged(user).catch((err) => console.error("[mail]", err.message));
   return { ok: true };
 }

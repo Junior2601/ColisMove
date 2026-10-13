@@ -2,6 +2,7 @@ import { pool } from "../config/db.js";
 import { MARKETING } from "../config/constants.js";
 import * as marketingModel from "../models/marketing.model.js";
 import * as marketingService from "../services/marketing.service.js";
+import * as resetModel from "../models/passwordReset.model.js";
 
 /**
  * Planificateur des notifications automatiques. À chaque passage (toutes les 5 min) :
@@ -38,9 +39,10 @@ async function runDailyJobs() {
   const reminders = await marketingService.enqueueDepartureReminders();
   const digests = await marketingService.enqueueWeeklyDigests();
   const purged = await marketingModel.purgeOldData(MARKETING.purge);
+  purged.resets = await resetModel.purgeOld(); // liens de mot de passe oublié de plus de 7 jours
   console.log(
     `🗓️  Tâches du jour : ${reminders} rappel(s) de départ, ${digests} sélection(s) de la semaine, ` +
-      `purge (${purged.interests} intérêts, ${purged.queue} envois, ${purged.notifications} notifications).`
+      `purge (${purged.interests} intérêts, ${purged.queue} envois, ${purged.notifications} notifications, ${purged.resets} liens).`
   );
 }
 

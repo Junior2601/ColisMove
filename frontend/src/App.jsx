@@ -10,6 +10,8 @@ import Home from "./pages/visiteur/Home";
 import TripDetail from "./pages/visiteur/TripDetail";
 import Tracking from "./pages/visiteur/Tracking";
 import { Login, Register } from "./pages/visiteur/Auth";
+import ForgotPassword from "./pages/visiteur/ForgotPassword";
+import ResetPassword from "./pages/visiteur/ResetPassword";
 // Partagé
 import Profil from "./pages/Profil";
 import Messages from "./pages/Messages";
@@ -54,6 +56,8 @@ export default function App() {
               <Route path="/suivi" element={<Tracking />} />
               <Route path="/connexion" element={<Login />} />
               <Route path="/inscription" element={<Register />} />
+              <Route path="/mot-de-passe-oublie" element={<ForgotPassword />} />
+              <Route path="/mot-de-passe/reinitialiser" element={<ResetPassword />} />
 
               {/* ===== Pages légales et guide d'installation (publiques) ===== */}
               <Route path="/mentions-legales" element={<MentionsLegales />} />

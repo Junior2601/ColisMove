@@ -93,7 +93,8 @@ export default function Confidentialite() {
             </li>
             <li>
               <B>Nos prestataires techniques</B>, dans la limite de leur mission : hébergeurs (voir les{" "}
-              <A to="/mentions-legales">mentions légales</A>), services de notification des navigateurs (Google, Apple, Mozilla,
+              <A to="/mentions-legales">mentions légales</A>), service d'envoi d'e-mails (mot de passe oublié, alertes
+              de sécurité), services de notification des navigateurs (Google, Apple, Mozilla,
               Microsoft) qui acheminent les notifications chiffrées, et, si vous l'acceptez, les outils de mesure d'audience et de
               publicité listés dans la <A to="/cookies">Politique de cookies</A>.
             </li>

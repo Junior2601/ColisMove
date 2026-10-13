@@ -4,7 +4,7 @@
 --     À utiliser en développement uniquement.
 -- =========================================================
 
-DROP TABLE IF EXISTS job_runs, marketing_queue, campaigns, route_interests, push_subscriptions, notifications, messages, conversations, tracking_events, reservations, trips, settings, users CASCADE;
+DROP TABLE IF EXISTS password_resets, job_runs, marketing_queue, campaigns, route_interests, push_subscriptions, notifications, messages, conversations, tracking_events, reservations, trips, settings, users CASCADE;
 DROP TYPE  IF EXISTS marketing_status, campaign_audience, campaign_status, interest_source, notification_type, message_sender, reservation_status, trip_status, user_status, user_role CASCADE;
 DROP FUNCTION IF EXISTS set_updated_at, touch_conversation, city_key CASCADE;
 
@@ -405,3 +405,23 @@ CREATE TABLE IF NOT EXISTS job_runs (
   name         VARCHAR(60) PRIMARY KEY,
   last_run_on  DATE NOT NULL
 );
+
+-- =========================================================
+--  Mot de passe oublié (identique à migrations/005_password_resets.sql)
+-- =========================================================
+
+-- Liens de réinitialisation : à usage unique, valables 30 minutes, jeton jamais stocké en clair
+CREATE TABLE IF NOT EXISTS password_resets (
+  id            SERIAL PRIMARY KEY,
+  user_id       INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash    CHAR(64) NOT NULL,          -- empreinte SHA-256 du jeton envoyé par e-mail
+  expires_at    TIMESTAMPTZ NOT NULL,
+  used_at       TIMESTAMPTZ,
+  requested_ip  VARCHAR(64),                -- traçabilité en cas d'abus
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_password_reset_token UNIQUE (token_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at DESC);
+
+-- Date du dernier changement de mot de passe : les sessions ouvertes AVANT sont refusées
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;

@@ -5,10 +5,11 @@ import {
 } from "lucide-react";
 import Layout from "../components/Layout";
 import AppSettings from "../components/AppSettings";
+import PasswordInput from "../components/PasswordInput";
 import MarketingSettings from "../components/MarketingSettings";
 import { Badge, Field, Notice, Toast, inputClass, btnPrimary, btnOutline } from "../components/ui";
 import { authApi } from "../api/auth";
-import { errorMessage, fieldErrors } from "../api/client";
+import { errorMessage, fieldErrors, tokenStorage } from "../api/client";
 import { layoutVariantFor, useAuth } from "../context/AuthContext";
 import { useFlash } from "../hooks/useFlash";
 import { useUnreadCount } from "../hooks/useUnreadCount";
@@ -142,9 +143,10 @@ function PasswordForm({ onSaved }) {
     setSaving(true);
     setErrors({});
     try {
-      await authApi.changePassword(form.currentPassword, form.newPassword);
+      const { token } = await authApi.changePassword(form.currentPassword, form.newPassword);
+      tokenStorage.set(token); // nouvelle session : l'ancienne n'est plus acceptée par le serveur
       setForm(EMPTY_PASSWORDS);
-      onSaved("Mot de passe modifié.");
+      onSaved("Mot de passe modifié. Vos autres appareils ont été déconnectés.");
     } catch (err) {
       const byField = fieldErrors(err);
       setErrors(Object.keys(byField).length ? byField : { currentPassword: errorMessage(err) });
@@ -156,17 +158,16 @@ function PasswordForm({ onSaved }) {
   return (
     <form onSubmit={handleSubmit} className="border border-line rounded-2xl p-5 bg-white mb-5">
       <Field label="Mot de passe actuel" error={errors.currentPassword}>
-        <input value={form.currentPassword} onChange={set("currentPassword")} type="password" required
-          autoComplete="current-password" className={inputClass} />
+        <PasswordInput value={form.currentPassword} onChange={set("currentPassword")} required
+          autoComplete="current-password" />
       </Field>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
         <Field label="Nouveau mot de passe" error={errors.newPassword}>
-          <input value={form.newPassword} onChange={set("newPassword")} type="password" required minLength={8}
-            maxLength={72} autoComplete="new-password" placeholder="8 caractères minimum" className={inputClass} />
+          <PasswordInput value={form.newPassword} onChange={set("newPassword")} required minLength={8}
+            maxLength={72} autoComplete="new-password" placeholder="8 caractères minimum" />
         </Field>
         <Field label="Confirmation" error={errors.confirm}>
-          <input value={form.confirm} onChange={set("confirm")} type="password" required
-            autoComplete="new-password" className={inputClass} />
+          <PasswordInput value={form.confirm} onChange={set("confirm")} required autoComplete="new-password" />
         </Field>
       </div>
       <button type="submit" disabled={saving} className={`${btnOutline} w-full`}>

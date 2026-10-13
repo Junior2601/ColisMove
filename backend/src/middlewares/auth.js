@@ -23,6 +23,10 @@ export async function authenticate(req, res, next) {
   if (!user) throw unauthorized("Compte introuvable.");
   // Voyageur révoqué ou remis en attente : 401 → le frontend le déconnecte aussitôt
   if (user.status !== "APPROVED") throw unauthorized("Votre compte n'est plus actif.");
+  // Mot de passe changé depuis l'ouverture de cette session (oubli, changement, piratage) : reconnexion
+  if (issuedBeforePasswordChange(payload, user)) {
+    throw unauthorized("Votre mot de passe a été modifié : reconnectez-vous.");
+  }
 
   req.user = user;
   next();
@@ -50,7 +54,13 @@ export async function userFromToken(token) {
     return null;
   }
   const user = await userModel.findById(Number(payload.sub));
-  return user?.status === "APPROVED" ? user : null;
+  return user?.status === "APPROVED" && !issuedBeforePasswordChange(payload, user) ? user : null;
+}
+
+// Jeton délivré avant le dernier changement de mot de passe ? (iat : date d'émission, en secondes)
+function issuedBeforePasswordChange(payload, user) {
+  if (!user.passwordChangedAt) return false;
+  return payload.iat < Math.floor(new Date(user.passwordChangedAt).getTime() / 1000);
 }
 
 // Connexion facultative : req.user si le token est valide, sinon visiteur anonyme (req.user = null)

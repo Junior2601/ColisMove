@@ -50,3 +50,19 @@ export const changePasswordBody = z.object({
   currentPassword: z.string().min(1, "Mot de passe actuel requis."),
   newPassword: z.string().min(8, "8 caractères minimum.").max(72, "72 caractères maximum."),
 });
+
+/* ===================== Mot de passe oublié ===================== */
+
+export const forgotPasswordBody = z.object({
+  identifier: z.string().trim().min(3, "Email ou téléphone requis.").max(160),
+});
+
+// Jeton du lien : 43 caractères base64url
+const resetToken = z.string().trim().regex(/^[A-Za-z0-9_-]{30,100}$/, "Lien invalide.");
+
+export const resetTokenBody = z.object({ token: resetToken });
+
+export const resetPasswordBody = z.object({
+  token: resetToken,
+  password: z.string().min(8, "8 caractères minimum.").max(72, "72 caractères maximum."),
+});

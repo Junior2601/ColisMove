@@ -19,3 +19,21 @@ export async function updateMe(req, res) {
 export async function changePassword(req, res) {
   res.json(await authService.changePassword(req.user.id, req.valid.body));
 }
+
+/* ---------- Mot de passe oublié ---------- */
+
+// Toujours la même réponse, immédiate : impossible de savoir si le compte existe
+export async function forgotPassword(req, res) {
+  authService
+    .requestPasswordReset(req.valid.body, { ip: req.ip })
+    .catch((err) => console.error("[mot de passe oublié]", err));
+  res.json({ ok: true });
+}
+
+export async function checkResetToken(req, res) {
+  res.json(await authService.checkResetToken(req.valid.body));
+}
+
+export async function resetPassword(req, res) {
+  res.json(await authService.resetPassword(req.valid.body));
+}

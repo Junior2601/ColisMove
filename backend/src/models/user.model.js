@@ -2,7 +2,8 @@ import { pool } from "../config/db.js";
 import { buildSetClause, likePattern } from "../utils/sql.js";
 
 // Jamais de password_hash dans les colonnes publiques
-const COLUMNS = "id, first_name, last_name, email, phone, city, role, status, status_changed_at, created_at";
+const COLUMNS =
+  "id, first_name, last_name, email, phone, city, role, status, status_changed_at, password_changed_at, created_at";
 
 export function toUser(row) {
   if (!row) return null;
@@ -16,6 +17,7 @@ export function toUser(row) {
     role: row.role,
     status: row.status,
     statusChangedAt: row.status_changed_at,
+    passwordChangedAt: row.password_changed_at, // les sessions ouvertes avant cette date sont refusées
     createdAt: row.created_at,
   };
 }
@@ -115,8 +117,9 @@ export async function findPasswordHash(id, db = pool) {
   return rows[0]?.password_hash ?? null;
 }
 
+// Nouveau mot de passe : toutes les sessions ouvertes avant maintenant deviennent invalides
 export async function updatePassword(id, passwordHash, db = pool) {
-  await db.query(`UPDATE users SET password_hash = $2 WHERE id = $1`, [id, passwordHash]);
+  await db.query(`UPDATE users SET password_hash = $2, password_changed_at = NOW() WHERE id = $1`, [id, passwordHash]);
 }
 
 // Destinataires des notifications "admin" (nouvelle demande voyageur…)

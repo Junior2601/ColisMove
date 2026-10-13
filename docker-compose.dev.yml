@@ -1,0 +1,19 @@
+# =========================================================
+#  Développement local : une base PostgreSQL 17 dans Docker
+#    docker compose -f docker-compose.dev.yml up -d
+#  backend/.env : DATABASE_URL=postgresql://postgres:motdepasse@localhost:5432/movecolis
+# =========================================================
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: movecolis
+      POSTGRES_PASSWORD: motdepasse
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

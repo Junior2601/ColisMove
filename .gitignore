@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.log
+
+# Secrets : jamais dans Git
+.env
+.env.*
+!.env.example
+deploy/.env
+deploy/.env.api
+
+# Sauvegardes de la base
+backups/
+*.dump

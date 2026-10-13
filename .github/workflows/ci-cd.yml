@@ -1,0 +1,147 @@
+# =========================================================
+#  MoveColis — Intégration et déploiement continus
+#  Pull request : vérifications + construction des images (sans déployer)
+#  Push sur main : vérifications → images Docker (GHCR) → déploiement sur le VPS → contrôle public
+# =========================================================
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Un seul déploiement à la fois ; un déploiement en cours n'est jamais interrompu
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Vérifications
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Backend — dépendances et syntaxe
+        working-directory: backend
+        run: |
+          npm ci
+          find src database -name "*.js" -print0 | xargs -0 -n1 node --check
+
+      - name: Frontend — build de production
+        working-directory: frontend
+        env:
+          VITE_API_URL: /api
+          VITE_SITE_URL: https://${{ vars.DOMAIN }}
+        run: |
+          npm ci
+          npm run build
+
+  images:
+    name: Images Docker
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nom et version des images
+        id: meta
+        run: |
+          echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/movecolis" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image de l'API
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ steps.meta.outputs.prefix }}-api:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.prefix }}-api:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Image du site
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            VITE_API_URL=/api
+            VITE_SITE_URL=https://${{ vars.DOMAIN }}
+            VITE_GA_MEASUREMENT_ID=${{ vars.VITE_GA_MEASUREMENT_ID }}
+            VITE_META_PIXEL_ID=${{ vars.VITE_META_PIXEL_ID }}
+          tags: |
+            ${{ steps.meta.outputs.prefix }}-web:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.prefix }}-web:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+  deploy:
+    name: Déploiement sur le VPS
+    needs: images
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ vars.DOMAIN }}
+    env:
+      SSH_TARGET: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+      SSH_PORT: ${{ secrets.VPS_PORT || '22' }}
+      APP_DIR: /opt/movecolis
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Connexion SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Empreinte du serveur : fournie en secret (recommandé), sinon relevée à la volée
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "$SSH_PORT" -H "${{ secrets.VPS_HOST }}" > ~/.ssh/known_hosts
+          fi
+          printf 'Host vps\n  HostName %s\n  User %s\n  Port %s\n  IdentityFile ~/.ssh/id_deploy\n' \
+            "${{ secrets.VPS_HOST }}" "${{ secrets.VPS_USER }}" "$SSH_PORT" > ~/.ssh/config
+
+      - name: Envoi des fichiers d'infrastructure
+        run: scp deploy/docker-compose.yml deploy/Caddyfile deploy/deploy.sh deploy/backup.sh "vps:$APP_DIR/"
+
+      - name: Déploiement
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Le jeton passe par l'entrée standard : il n'apparaît dans aucune commande ni aucun journal
+          printf '%s' "$GHCR_TOKEN" | ssh vps "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+          ssh vps "cd $APP_DIR && chmod +x deploy.sh backup.sh && ./deploy.sh ${{ needs.images.outputs.tag }}"
+
+      - name: Contrôle public (HTTPS)
+        run: curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-all-errors "https://${{ vars.DOMAIN }}/api/health"

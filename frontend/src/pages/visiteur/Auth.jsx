@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { CircleCheck, Package, Plane } from "lucide-react";
 import Layout from "../../components/Layout";
+import PasswordInput from "../../components/PasswordInput";
 import { Field, inputClass, btnPrimary, btnOutline, Notice } from "../../components/ui";
 import { homePathFor, useAuth } from "../../context/AuthContext";
 import { errorMessage, fieldErrors } from "../../api/client";
@@ -59,15 +60,21 @@ export function Login() {
               className={inputClass}
             />
           </Field>
-          <Field label="Mot de passe" hint={<a href="#" className="underline">Mot de passe oublié ?</a>}>
-            <input
+          <Field
+            label="Mot de passe"
+            hint={
+              // L'e-mail ou le téléphone déjà saisi est repris sur la page suivante
+              <Link to="/mot-de-passe-oublie" state={{ identifier: form.identifier }} className="underline">
+                Mot de passe oublié ?
+              </Link>
+            }
+          >
+            <PasswordInput
               value={form.password}
               onChange={set("password")}
-              type="password"
               required
               autoComplete="current-password"
               placeholder="••••••••"
-              className={inputClass}
             />
           </Field>
 
@@ -244,9 +251,9 @@ export function Register() {
           )}
 
           <Field label="Mot de passe" error={errors.password}>
-            <input value={form.password} onChange={set("password")} type="password" required
+            <PasswordInput value={form.password} onChange={set("password")} required
               minLength={8} maxLength={72} autoComplete="new-password"
-              placeholder="8 caractères minimum" className={inputClass} />
+              placeholder="8 caractères minimum" />
           </Field>
 
           {/* Acceptation expresse des CGU et de la politique de confidentialité (obligatoire) */}
