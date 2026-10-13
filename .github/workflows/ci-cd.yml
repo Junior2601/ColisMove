@@ -133,7 +133,7 @@ jobs:
             "${{ secrets.VPS_HOST }}" "${{ secrets.VPS_USER }}" "$SSH_PORT" > ~/.ssh/config
 
       - name: Envoi des fichiers d'infrastructure
-        run: scp deploy/docker-compose.yml deploy/Caddyfile deploy/deploy.sh deploy/backup.sh "vps:$APP_DIR/"
+        run: scp deploy/docker-compose.yml deploy/deploy.sh deploy/backup.sh "vps:$APP_DIR/"
 
       - name: Déploiement
         env:

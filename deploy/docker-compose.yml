@@ -1,7 +1,8 @@
 # =========================================================
 #  Production MoveColis — sur le VPS, dans /opt/movecolis
-#  Variables : .env (DOMAIN, ACME_EMAIL, IMAGE_PREFIX) · secrets de l'API : .env.api
-#  Ce fichier est copié automatiquement par GitHub Actions à chaque déploiement.
+#  Le Nginx déjà installé sur le VPS reçoit le trafic (HTTPS) et le transmet à ces conteneurs,
+#  qui n'écoutent QUE en local (127.0.0.1) : rien n'est exposé directement sur Internet.
+#  Copié automatiquement par GitHub Actions à chaque déploiement.
 # =========================================================
 name: movecolis
 
@@ -10,37 +11,19 @@ x-logging: &logging
   options: { max-size: "10m", max-file: "3" } # les journaux ne remplissent jamais le disque
 
 services:
-  # API Node.js + Socket.io (non exposée directement : seul Caddy y accède)
+  # API Node.js + Socket.io → Nginx : /api et /socket.io
   api:
     image: ${IMAGE_PREFIX:?IMAGE_PREFIX manquant dans .env}-api:${TAG:-latest}
     env_file: .env.api
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:4100:4000" # 4000 est déjà pris par MoveCash sur le VPS
     logging: *logging
 
-  # Site React (fichiers statiques servis par Nginx)
+  # Site React (fichiers statiques) → Nginx : tout le reste
   web:
     image: ${IMAGE_PREFIX:?IMAGE_PREFIX manquant dans .env}-web:${TAG:-latest}
     restart: unless-stopped
-    logging: *logging
-
-  # Porte d'entrée : HTTPS automatique (Let's Encrypt), /api et /socket.io → API, le reste → site
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp" # HTTP/3
-    environment:
-      DOMAIN: ${DOMAIN:?DOMAIN manquant dans .env}
-      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL manquant dans .env}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data # certificats HTTPS : à ne jamais supprimer
-      - caddy_config:/config
-    depends_on: [api, web]
+      - "127.0.0.1:8100:80"
     logging: *logging
-
-volumes:
-  caddy_data:
-  caddy_config:
