@@ -8,6 +8,7 @@ import { errorMessage } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { findGuestAccessByCode } from "../../lib/guestAccess";
 import { formatDateTime, formatKg, formatMoney, formatTripDate, routeLabel } from "../../lib/format";
+import { paths } from "../../lib/hashid";
 import { RESERVATION_FLOW, RESERVATION_STATUS, TRACKING_STEPS } from "../../lib/status";
 
 /**
@@ -176,7 +177,7 @@ export default function Tracking() {
               </ul>
 
               {conversationId && (
-                <Link to={`/messages/${conversationId}`} className={`${btnPrimary} ${btnSm} mt-4`}>
+                <Link to={paths.conversation(conversationId)} className={`${btnPrimary} ${btnSm} mt-4`}>
                   <MessageCircle size={15} /> Ouvrir la conversation
                 </Link>
               )}

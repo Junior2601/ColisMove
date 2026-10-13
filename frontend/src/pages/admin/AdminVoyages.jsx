@@ -15,6 +15,7 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useFlash } from "../../hooks/useFlash";
 import { formatMoney, formatTripDate, ownerLabel, plural } from "../../lib/format";
 import { tripStatusBadge } from "../../lib/status";
+import { paths } from "../../lib/hashid";
 
 const OWNER_FILTERS = [
   { key: "all", label: "Tous" },
@@ -60,7 +61,7 @@ function AdminTripCard({ trip, isMine, onSelectOwner, onEdit, onCancel }) {
       />
 
       <div className="flex gap-2 flex-wrap mt-1">
-        <Link to={`/admin/reservations?voyage=${trip.id}`} className={`${btnOutline} ${btnSm}`}>
+        <Link to={paths.tripReservations("/admin/reservations", trip.id)} className={`${btnOutline} ${btnSm}`}>
           <Package size={15} /> Réservations ({trip.reservationsCount})
           {trip.pendingReservationsCount > 0 && (
             <span className="bg-primary text-white rounded-full px-1.5 text-[11px] leading-4.5">

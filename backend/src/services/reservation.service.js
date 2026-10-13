@@ -7,6 +7,7 @@ import * as messageModel from "../models/message.model.js";
 import * as settingsModel from "../models/settings.model.js";
 import * as notificationService from "./notification.service.js";
 import * as realtime from "../socket/realtime.js";
+import { paths } from "../utils/hashid.js";
 import { routeText } from "../utils/names.js";
 import {
   RESERVATION_STATUS_LABELS as LABELS,
@@ -117,7 +118,7 @@ export async function createReservation(input, { user = null } = {}) {
     type: "NEW_RESERVATION",
     title: "Nouvelle réservation 📦",
     body: created.summary,
-    link: `/messages/${created.conversationId}`,
+    link: paths.conversation(created.conversationId),
     groupKey: notificationService.conversationGroup(created.conversationId),
   });
   realtime.notifyInbox({ conversationId: created.conversationId, ownerId: created.ownerId, clientId: user?.id });
@@ -240,7 +241,7 @@ async function notifyStatusChange(reservation, { actorId, note, cancelledBy }) {
     type: "RESERVATION_STATUS",
     title,
     body: `${reservation.trackingCode} · ${reservation.clientName} · ${routeText(reservation.trip)}${note ? ` — ${note}` : ""}`,
-    link: `/messages/${reservation.conversationId}`,
+    link: paths.conversation(reservation.conversationId),
     groupKey: notificationService.conversationGroup(reservation.conversationId),
   });
 }

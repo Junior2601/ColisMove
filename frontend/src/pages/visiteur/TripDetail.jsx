@@ -9,6 +9,7 @@ import { errorMessage, fieldErrors } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { useApi } from "../../hooks/useApi";
 import { saveGuestAccess } from "../../lib/guestAccess";
+import { decodeId, paths } from "../../lib/hashid";
 import {
   coverClassFor, formatKg, formatMoney, formatTripDate, formatTripTime, ownerLabel, routeLabel,
 } from "../../lib/format";
@@ -35,10 +36,16 @@ function bookingBlocker(trip, user) {
 }
 
 export default function TripDetail() {
-  const { id } = useParams();
+  const tripId = decodeId(useParams().id); // /voyage/Xk9mP2qA → 12
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { data: trip, loading, error, reload } = useApi(() => publicApi.getTrip(id), [id]);
+  const { data: trip, loading, error, reload } = useApi(
+    () =>
+      tripId
+        ? publicApi.getTrip(tripId)
+        : Promise.reject(Object.assign(new Error("Ce voyage n'existe pas ou n'est plus disponible."), { status: 404 })),
+    [tripId]
+  );
 
   const [form, setForm] = useState({ name: "", phone: "", desc: "" });
   const [kg, setKg] = useState(5);
@@ -125,7 +132,7 @@ export default function TripDetail() {
       }
 
       // Direction la messagerie : le propriétaire confirme la réservation dans la conversation
-      navigate(`/messages/${result.conversationId}`, {
+      navigate(paths.conversation(result.conversationId), {
         state: { justReserved: { trackingCode: result.reservation.trackingCode } },
       });
     } catch (err) {

@@ -14,6 +14,7 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useFlash } from "../../hooks/useFlash";
 import { useSocketEvent } from "../../hooks/useSocketEvent";
 import { formatKg, formatMoney, formatPhone, formatTripShortDate, routeLabel, timeAgo } from "../../lib/format";
+import { decodeId, paths } from "../../lib/hashid";
 import { CANCELLABLE_RESERVATION_STATUSES, NEXT_RESERVATION_STEP, RESERVATION_STATUS } from "../../lib/status";
 
 // Le filtre actif est dans l'URL (?statut=pending) : le tableau de bord peut y renvoyer directement
@@ -57,7 +58,7 @@ function ReservationCard({ r, onChangeStatus }) {
       <div className="flex gap-2 flex-wrap mt-1">
         {/* L'échange avec le client se fait dans la conversation de la réservation */}
         {r.conversationId && (
-          <Link to={`/messages/${r.conversationId}`} className={`${unread ? btnPrimary : btnOutline} ${btnSm}`}>
+          <Link to={paths.conversation(r.conversationId)} className={`${unread ? btnPrimary : btnOutline} ${btnSm}`}>
             <MessageCircle size={15} /> Conversation
             {unread && <span className="bg-white text-primary rounded-full px-1.5 text-[11px] leading-4.5">{r.unreadCount}</span>}
           </Link>
@@ -92,7 +93,7 @@ function ReservationCard({ r, onChangeStatus }) {
 
 export default function MesReservations() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tripFilter = searchParams.get("voyage"); // ex. "1" si on vient de Mes voyages
+  const tripFilter = decodeId(searchParams.get("voyage")); // ?voyage=Xk9mP2qA → 12
   const statusFilter = STATUS_FILTERS.find((f) => f.key === searchParams.get("statut")) ?? STATUS_FILTERS[0];
   const [query, setQuery] = useState("");
   const q = useDebouncedValue(query.trim());
@@ -125,10 +126,10 @@ export default function MesReservations() {
   }
 
   // Libellé du filtre voyage, déduit des réservations chargées
-  const filteredTrip = list.items.find((r) => String(r.tripId) === tripFilter)?.trip;
+  const filteredTrip = list.items.find((r) => r.tripId === tripFilter)?.trip;
   const tripChipLabel = filteredTrip
     ? `${routeLabel(filteredTrip)} du ${formatTripShortDate(filteredTrip.departureAt)}`
-    : `Voyage #${tripFilter}`;
+    : "Voyage sélectionné";
 
   return (
     <Layout variant="traveler">

@@ -17,6 +17,7 @@ import { useSocketEvent } from "../../hooks/useSocketEvent";
 import {
   formatDayMonth, formatKg, formatMoney, formatNumber, formatTripShortDate, formatTripTime, ownerLabel, routeLabel,
 } from "../../lib/format";
+import { paths } from "../../lib/hashid";
 import { RESERVATION_STATUS } from "../../lib/status";
 
 const TABS = [
@@ -61,7 +62,7 @@ function ShipmentCard({ r, onCancel }) {
 
       <div className="flex gap-2 flex-wrap mt-1">
         {r.conversationId && (
-          <Link to={`/messages/${r.conversationId}`} className={`${r.unreadCount > 0 ? btnPrimary : btnOutline} ${btnSm}`}>
+          <Link to={paths.conversation(r.conversationId)} className={`${r.unreadCount > 0 ? btnPrimary : btnOutline} ${btnSm}`}>
             <MessageCircle size={15} /> Conversation
             {r.unreadCount > 0 && (
               <span className="bg-white text-primary rounded-full px-1.5 text-[11px] leading-4.5">{r.unreadCount}</span>

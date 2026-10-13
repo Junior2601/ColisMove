@@ -14,6 +14,7 @@ import { usePaginated } from "../../hooks/useApi";
 import { useFlash } from "../../hooks/useFlash";
 import { formatMoney, formatTripDate, plural, routeLabel } from "../../lib/format";
 import { tripStatusBadge } from "../../lib/status";
+import { paths } from "../../lib/hashid";
 
 const TABS = [
   { key: "upcoming", label: "À venir" },
@@ -52,7 +53,7 @@ function MyTripCard({ trip, onEdit, onCancel, onDelete }) {
 
       {/* Actions */}
       <div className="flex gap-2 flex-wrap mt-1">
-        <Link to={`/voyageur/reservations?voyage=${trip.id}`} className={`${btnOutline} ${btnSm}`}>
+        <Link to={paths.tripReservations("/voyageur/reservations", trip.id)} className={`${btnOutline} ${btnSm}`}>
           <Package size={15} /> Réservations ({trip.reservationsCount})
           {trip.pendingReservationsCount > 0 && (
             <span className="bg-primary text-white rounded-full px-1.5 text-[11px] leading-4.5">

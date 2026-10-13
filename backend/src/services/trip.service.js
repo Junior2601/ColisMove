@@ -7,6 +7,7 @@ import * as conversationModel from "../models/conversation.model.js";
 import * as notificationService from "./notification.service.js";
 import * as marketingService from "./marketing.service.js";
 import * as realtime from "../socket/realtime.js";
+import { paths } from "../utils/hashid.js";
 import { routeText } from "../utils/names.js";
 import { formatLocalDate } from "../utils/date.js";
 import { CANCELLABLE_RESERVATION_STATUSES } from "../config/constants.js";
@@ -127,7 +128,7 @@ export async function cancelTrip(tripId, { actorId, reason, onlyOwnerId = null }
       type: "TRIP_CANCELLED",
       title: "Voyage annulé ❌",
       body: `${routeText(trip)} du ${formatLocalDate(trip.departureAt)} : votre réservation est annulée.${reason ? ` Motif : ${reason}` : ""}`,
-      link: `/messages/${conversationId}`,
+      link: paths.conversation(conversationId),
       groupKey: notificationService.conversationGroup(conversationId),
     });
   }

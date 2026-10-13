@@ -2,6 +2,7 @@ import * as marketingModel from "../models/marketing.model.js";
 import * as tripModel from "../models/trip.model.js";
 import * as notificationService from "./notification.service.js";
 import { MARKETING } from "../config/constants.js";
+import { paths } from "../utils/hashid.js";
 import { formatLocalDate } from "../utils/date.js";
 import { formatKilos, formatMoney } from "../utils/money.js";
 import { ownerDisplayName, routeText } from "../utils/names.js";
@@ -124,7 +125,7 @@ export async function onTripPublished(tripId) {
             title: `Alerte trajet : ${route} ✈️`,
             body: `Un voyageur part de ${trip.departureCity} vers ${trip.arrivalCity} le ${date} · ${offer}.`,
           }),
-      link: `/voyage/${trip.id}`,
+      link: paths.trip(trip.id),
       dedupeKey: `trip:${trip.id}`,
       tripId: trip.id,
       sendAfter: new Date(Date.now() + MARKETING.routeAlertDelayMinutes * 60000),
@@ -155,7 +156,7 @@ export async function enqueueDepartureReminders() {
         kind: "DEPARTURE_SOON",
         title: `Il reste ${MARKETING.departureSoonDays} jours pour confier votre colis ⏳`,
         body: `${routeText(trip)} le ${formatLocalDate(trip.departureAt)} · encore ${formatKilos(trip.kilosAvailable)} disponibles.`,
-        link: `/voyage/${trip.id}`,
+        link: paths.trip(trip.id),
         dedupeKey: `departure-soon:${trip.id}`,
         tripId: trip.id,
       }))

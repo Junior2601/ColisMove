@@ -3,6 +3,7 @@ import { Plane } from "lucide-react";
 import {
   cityCode, coverClassFor, formatKg, formatMoney, formatTripDate, formatTripTime, ownerLabel,
 } from "../lib/format";
+import { paths } from "../lib/hashid";
 
 /**
  * Élément signature du design : la route de vol.
@@ -57,7 +58,7 @@ export default function TripCard({ trip }) {
 
   return (
     <Link
-      to={`/voyage/${trip.id}`}
+      to={paths.trip(trip.id)}
       className="block rounded-2xl overflow-hidden border border-line-light bg-white transition hover:shadow-card-hover hover:-translate-y-0.5"
     >
       {/* Couverture en dégradé (toujours la même couleur pour un trajet donné) avec badges */}

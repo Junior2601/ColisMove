@@ -12,6 +12,7 @@ import {
   cityCode, formatCompactMoney, formatKg, formatMoney, formatNumber, formatTripShortDate, plural, routeLabel,
   shortName, timeAgo,
 } from "../../lib/format";
+import { paths } from "../../lib/hashid";
 
 // Statistiques + les 3 réservations qui attendent une réponse, en parallèle
 function loadDashboard() {
@@ -134,7 +135,7 @@ function DashboardContent({ stats, pending, unread }) {
             </div>
             <div className="flex gap-2 flex-wrap mt-1">
               {r.conversationId && (
-                <Link to={`/messages/${r.conversationId}`} className={`${btnPrimary} ${btnSm}`}>
+                <Link to={paths.conversation(r.conversationId)} className={`${btnPrimary} ${btnSm}`}>
                   <MessageCircle size={16} /> Répondre dans la conversation
                   {r.unreadCount > 0 && (
                     <span className="bg-white text-primary rounded-full px-1.5 text-[11px] leading-4.5">{r.unreadCount}</span>

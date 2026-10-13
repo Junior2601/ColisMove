@@ -9,6 +9,7 @@ import { usePaginated } from "../hooks/useApi";
 import { useSocketEvent } from "../hooks/useSocketEvent";
 import { listGuestAccess } from "../lib/guestAccess";
 import { formatTripShortDate, ownerLabel, routeLabel, timeAgo } from "../lib/format";
+import { paths } from "../lib/hashid";
 import { RESERVATION_STATUS } from "../lib/status";
 
 const ADMIN_SCOPES = [
@@ -36,7 +37,7 @@ function ConversationRow({ c }) {
 
   return (
     <Link
-      to={`/messages/${c.id}`}
+      to={paths.conversation(c.id)}
       className="flex items-center gap-3 px-4 py-3.5 border-b border-line-light last:border-0 hover:bg-surface transition"
     >
       <div className="w-10 h-10 rounded-full bg-ink text-white flex items-center justify-center font-bold shrink-0">
@@ -153,7 +154,7 @@ function GuestInbox() {
         {accesses.map((a) => (
           <Link
             key={a.conversationId}
-            to={`/messages/${a.conversationId}`}
+            to={paths.conversation(a.conversationId)}
             className="flex items-center gap-3 px-4 py-3.5 border-b border-line-light last:border-0 hover:bg-surface transition"
           >
             <MessageCircle size={20} className="text-primary shrink-0" />

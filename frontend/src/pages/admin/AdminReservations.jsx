@@ -14,6 +14,7 @@ import { useFlash } from "../../hooks/useFlash";
 import {
   formatDateTime, formatKg, formatMoney, formatTripShortDate, ownerLabel, routeLabel, timeAgo,
 } from "../../lib/format";
+import { decodeId, paths } from "../../lib/hashid";
 import { CANCELLABLE_RESERVATION_STATUSES, NEXT_RESERVATION_STEP, RESERVATION_STATUS } from "../../lib/status";
 
 // Le filtre actif est dans l'URL (?statut=pending) : le tableau de bord peut y renvoyer directement
@@ -164,7 +165,7 @@ function AdminReservationCard({ r, onChangeStatus }) {
           </button>
         )}
         {r.conversationId && (
-          <Link to={`/messages/${r.conversationId}`} className={`${btnOutline} ${btnSm}`}>
+          <Link to={paths.conversation(r.conversationId)} className={`${btnOutline} ${btnSm}`}>
             <MessageCircle size={15} /> Conversation
           </Link>
         )}
@@ -190,7 +191,7 @@ function AdminReservationCard({ r, onChangeStatus }) {
 
 export default function AdminReservations() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tripFilter = searchParams.get("voyage");
+  const tripFilter = decodeId(searchParams.get("voyage")); // ?voyage=Xk9mP2qA → 12
   const statusFilter = STATUS_FILTERS.find((f) => f.key === searchParams.get("statut")) ?? STATUS_FILTERS[0];
   const [query, setQuery] = useState("");
   const q = useDebouncedValue(query.trim());
@@ -221,10 +222,10 @@ export default function AdminReservations() {
   }
 
   // Libellé du filtre voyage, déduit des réservations chargées
-  const filteredTrip = list.items.find((r) => String(r.tripId) === tripFilter)?.trip;
+  const filteredTrip = list.items.find((r) => r.tripId === tripFilter)?.trip;
   const tripChipLabel = filteredTrip
     ? `${routeLabel(filteredTrip)} du ${formatTripShortDate(filteredTrip.departureAt)}`
-    : `Voyage #${tripFilter}`;
+    : "Voyage sélectionné";
 
   function handleStatusChanged(updated) {
     list.setItems((items) => items.map((r) => (r.id === updated.id ? updated : r)));

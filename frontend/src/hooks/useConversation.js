@@ -51,6 +51,7 @@ export function useConversation(conversationId) {
 
   /* ---------- 1. Chargement initial (REST) ---------- */
   useEffect(() => {
+    if (!id) return setLoading(false); // lien invalide : rien à charger
     let active = true;
     setLoading(true);
     setError(null);
@@ -90,6 +91,7 @@ export function useConversation(conversationId) {
 
   /* ---------- 2. Temps réel ---------- */
   useEffect(() => {
+    if (!id) return undefined;
     const socket = getSocket();
 
     const join = () => {

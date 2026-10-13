@@ -9,6 +9,7 @@ import { useConversation } from "../hooks/useConversation";
 import {
   dayLabel, formatClock, formatKg, formatMoney, formatPhone, formatTripDate, ownerLabel, routeLabel,
 } from "../lib/format";
+import { decodeId } from "../lib/hashid";
 import { CANCELLABLE_RESERVATION_STATUSES, NEXT_RESERVATION_STEP, RESERVATION_STATUS } from "../lib/status";
 
 /* ===== Qui a écrit ce message, vu par le lecteur ===== */
@@ -180,7 +181,7 @@ function Composer({ onSend, onTyping }) {
 }
 
 export default function Conversation() {
-  const { id } = useParams();
+  const id = decodeId(useParams().id); // /messages/Xk9mP2qA → 12 (null si le lien est invalide)
   const { user } = useAuth();
   const location = useLocation();
   const justReserved = location.state?.justReserved; // { trackingCode } après une réservation
@@ -223,6 +224,18 @@ export default function Conversation() {
       <ArrowLeft size={16} /> Mes conversations
     </Link>
   );
+
+  /* ===== Lien invalide (code modifié à la main, lien tronqué…) ===== */
+  if (!id) {
+    return (
+      <Layout variant={layoutVariantFor(user)}>
+        <div className="max-w-2xl mx-auto">
+          {backLink}
+          <Notice tone="warn">Ce lien de conversation n'est pas valide.</Notice>
+        </div>
+      </Layout>
+    );
+  }
 
   /* ===== Erreurs d'accès ===== */
   if (chat.error) {

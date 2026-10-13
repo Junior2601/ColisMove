@@ -3,6 +3,7 @@ import * as messageModel from "../models/message.model.js";
 import * as reservationService from "./reservation.service.js";
 import * as notificationService from "./notification.service.js";
 import * as realtime from "../socket/realtime.js";
+import { paths } from "../utils/hashid.js";
 import { ownerDisplayName } from "../utils/names.js";
 import { hashToken, safeEqualHex } from "../utils/token.js";
 import { badRequest, forbidden, notFound, unauthorized } from "../utils/AppError.js";
@@ -114,7 +115,7 @@ async function notifyNewMessage(conversationId, info, side, actor, message) {
       type: "NEW_MESSAGE",
       title: senderName,
       body: message.body,
-      link: `/messages/${conversationId}`,
+      link: paths.conversation(conversationId),
       groupKey: notificationService.conversationGroup(conversationId),
     });
   } catch (err) {
