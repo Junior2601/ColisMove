@@ -12,7 +12,13 @@ types.setTypeParser(1700, (value) => parseFloat(value));
 // pour éviter tout décalage horaire ("2026-07-25 08:45:00" reste tel quel)
 types.setTypeParser(1114, (value) => value);
 
-export const pool = new Pool({ connectionString: env.databaseUrl, max: 10 });
+export const pool = new Pool({
+  connectionString: env.databaseUrl,
+  max: 10,
+  // Connexion chiffrée vers Render ; le certificat n'est vérifié que si DATABASE_SSL_VERIFY=true
+  ssl: env.databaseSsl ? { rejectUnauthorized: env.databaseSslVerify } : undefined,
+  connectionTimeoutMillis: 10000,
+});
 
 pool.on("error", (err) => console.error("[pg] erreur sur un client inactif :", err.message));
 
