@@ -1,11 +1,11 @@
 # =========================================================
-#  Développement local : une base PostgreSQL 17 dans Docker
+#  Développement local : une base PostgreSQL 18 dans Docker (même version que Render)
 #    docker compose -f docker-compose.dev.yml up -d
 #  backend/.env : DATABASE_URL=postgresql://postgres:motdepasse@localhost:5432/movecolis
 # =========================================================
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: movecolis
@@ -13,7 +13,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql # PostgreSQL 18 : le volume se monte sur ce dossier
 
 volumes:
   pgdata:

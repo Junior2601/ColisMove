@@ -58,7 +58,7 @@ movecolis/
 ## Développement local
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d     # PostgreSQL 17 sur localhost:5432
+docker compose -f docker-compose.dev.yml up -d     # PostgreSQL 18 sur localhost:5432
 cd backend  && npm run db:migrate && npm run db:seed:demo && npm run dev
 cd frontend && npm run dev
 ```

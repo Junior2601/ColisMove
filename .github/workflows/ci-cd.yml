@@ -78,6 +78,7 @@ jobs:
         with:
           context: backend
           push: ${{ github.event_name != 'pull_request' }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           tags: |
             ${{ steps.meta.outputs.prefix }}-api:${{ steps.meta.outputs.tag }}
             ${{ steps.meta.outputs.prefix }}-api:latest
@@ -89,6 +90,7 @@ jobs:
         with:
           context: frontend
           push: ${{ github.event_name != 'pull_request' }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: |
             VITE_API_URL=/api
             VITE_SITE_URL=https://${{ vars.DOMAIN }}
@@ -105,6 +107,9 @@ jobs:
     needs: images
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     environment:
       name: production
       url: https://${{ vars.DOMAIN }}
