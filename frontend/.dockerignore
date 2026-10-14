@@ -1,0 +1,6 @@
+node_modules
+dist
+# Les .env locaux ne doivent jamais se retrouver dans le site de production
+.env
+.env.*
+!.env.example
