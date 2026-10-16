@@ -5,7 +5,7 @@
  *  - met à jour la pastille de l'icône (messages non lus)
  * ========================================================= */
 
-const CACHE = "movecolis-v1"; // l'ancien cache est supprimé à l'activation
+const CACHE = "movecolis-v2"; // l'ancien cache est supprimé à l'activation
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", "/icons/badge-96.png"];
 
