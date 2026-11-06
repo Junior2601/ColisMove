@@ -33,4 +33,16 @@ export const adminApi = {
   // Paramètres
   getSettings: () => api.get("/admin/settings"),
   updateSettings: (data) => api.patch("/admin/settings", data),
+
+  // Billets d'avion : demandes, billets Aviasales, règles de prix et options
+  listFlightOrders: (params) => api.get("/admin/flight-orders", params),
+  updateFlightOrderStatus: (id, status, note) => api.patch(`/admin/flight-orders/${id}/status`, { status, note }),
+  flightSearches: () => api.get("/admin/flights/searches"),
+  listFlightOffers: (params) => api.get("/admin/flights/offers", params), // { origin, destination, month, refresh }
+  updateFlightOffer: (id, data) => api.patch(`/admin/flights/offers/${id}`, data),
+  getFlightSettings: () => api.get("/admin/flights/settings"),
+  updateFlightSettings: (data) => api.patch("/admin/flights/settings", data),
+  createFlightOption: (data) => api.post("/admin/flights/options", data),
+  updateFlightOption: (id, data) => api.patch(`/admin/flights/options/${id}`, data),
+  deleteFlightOption: (id) => api.delete(`/admin/flights/options/${id}`),
 };

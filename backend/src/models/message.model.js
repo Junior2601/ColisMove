@@ -52,3 +52,16 @@ export async function createSystemForReservations(reservationIds, body, db = poo
   );
   return rows.map(toMessage);
 }
+
+// Message automatique dans la conversation d'une demande de billet d'avion
+export async function createSystemForFlightOrder(flightOrderId, body, db = pool) {
+  const { rows } = await db.query(
+    `INSERT INTO messages (conversation_id, sender_type, body)
+     SELECT c.id, 'SYSTEM'::message_sender, $2::text
+     FROM conversations c
+     WHERE c.flight_order_id = $1
+     RETURNING *`,
+    [flightOrderId, body]
+  );
+  return rows.map(toMessage);
+}

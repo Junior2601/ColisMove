@@ -1,16 +1,23 @@
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Check, MapPin, SendHorizontal, X } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, MapPin, SendHorizontal, X } from "lucide-react";
 import Layout from "../components/Layout";
 import ReservationStatusModal from "../components/ReservationStatusModal";
 import { Badge, ErrorState, Loader, Notice, btnDanger, btnOutline, btnPrimary, btnSm } from "../components/ui";
 import { layoutVariantFor, useAuth } from "../context/AuthContext";
 import { useConversation } from "../hooks/useConversation";
 import {
-  dayLabel, formatClock, formatKg, formatMoney, formatPhone, formatTripDate, ownerLabel, routeLabel,
+  dayLabel, formatClock, formatKg, formatMoney, formatPhone, formatTripDate, formatTripTime, ownerLabel, routeLabel,
 } from "../lib/format";
 import { decodeId } from "../lib/hashid";
-import { CANCELLABLE_RESERVATION_STATUSES, NEXT_RESERVATION_STEP, RESERVATION_STATUS } from "../lib/status";
+import {
+  CANCELLABLE_FLIGHT_ORDER_STATUSES, CANCELLABLE_RESERVATION_STATUSES, FLIGHT_ORDER_STATUS, NEXT_FLIGHT_ORDER_STEP,
+  NEXT_RESERVATION_STEP, RESERVATION_STATUS,
+} from "../lib/status";
+import { baggageLabel, passengersLabel, stopsLabel } from "../lib/flights";
+
+// La conversation porte sur une réservation de kilos ou sur une demande de billet d'avion
+const subjectOf = (detail) => (detail.kind === "FLIGHT" ? detail.flightOrder : detail.reservation);
 
 /* ===== Qui a écrit ce message, vu par le lecteur ===== */
 function senderName(message, detail) {
@@ -18,7 +25,7 @@ function senderName(message, detail) {
     case "OWNER":
       return ownerLabel(detail.owner);
     case "CUSTOMER":
-      return detail.reservation.clientName;
+      return subjectOf(detail).clientName;
     case "ADMIN":
       return "Équipe MoveColis";
     default:
@@ -88,6 +95,76 @@ function ConversationHeader({ detail, onAction }) {
         {canCancel && (
           <button type="button" onClick={() => onAction("CANCELLED")} className={`${btnDanger} ${btnSm}`}>
             <X size={15} /> {canManage ? "Annuler" : "Annuler ma réservation"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ===== En-tête d'une demande de billet d'avion ===== */
+function FlightOrderHeader({ detail, onAction }) {
+  const { flightOrder: order, viewerSide } = detail;
+  const { flight } = order;
+  const status = FLIGHT_ORDER_STATUS[order.status];
+  const next = NEXT_FLIGHT_ORDER_STEP[order.status];
+  const canManage = viewerSide === "OWNER" || viewerSide === "ADMIN";
+  const canCancel = canManage
+    ? CANCELLABLE_FLIGHT_ORDER_STATUSES.includes(order.status)
+    : order.status === "PENDING"; // le client annule seulement avant le paiement
+
+  return (
+    <div className="border border-line-light rounded-2xl bg-white px-4 py-3.5 flex flex-col gap-1.5">
+      <div className="flex justify-between items-start gap-2.5">
+        <div className="min-w-0">
+          <div className="font-extrabold text-[15.5px]">
+            ✈️ {flight.origin.name} → {flight.destination.name} · {formatTripDate(flight.departureAt)} ·{" "}
+            {formatTripTime(flight.departureAt)}
+          </div>
+          <div className="text-[13px] text-muted">
+            <span className="font-mono font-bold text-ink">{order.reference}</span> · {passengersLabel(order)} ·{" "}
+            <b className="text-ink">{formatMoney(order.totalAmount, order.currency)}</b>
+          </div>
+          <div className="text-[13px] text-muted">
+            {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers)} ·{" "}
+            {baggageLabel(flight)}
+          </div>
+          {order.options.length > 0 && (
+            <div className="text-[13px] text-muted">
+              Options : {order.options.map((o) => (o.quantity > 1 ? `${o.label} × ${o.quantity}` : o.label)).join(", ")}
+            </div>
+          )}
+          <div className="text-[13px] text-muted">
+            {viewerSide === "CUSTOMER" ? (
+              <>
+                Avec <b className="text-ink">l&apos;équipe MoveColis</b> · achat de votre billet
+              </>
+            ) : (
+              <>
+                Client <b className="text-ink">{order.clientName}</b>
+                {order.isGuest ? " (visiteur)" : ""} · {formatPhone(order.clientPhone)}
+              </>
+            )}
+          </div>
+        </div>
+        <Badge tone={status.tone}>{status.label}</Badge>
+      </div>
+
+      <div className="flex gap-2 flex-wrap mt-1.5">
+        {canManage && next && (
+          <button type="button" onClick={() => onAction(next.status)} className={`${btnPrimary} ${btnSm}`}>
+            <Check size={15} /> {next.action}
+          </button>
+        )}
+        {/* Lien d'achat sur aviasales.ru : visible uniquement par l'équipe */}
+        {canManage && order.purchaseUrl && CANCELLABLE_FLIGHT_ORDER_STATUSES.includes(order.status) && (
+          <a href={order.purchaseUrl} target="_blank" rel="noopener noreferrer" className={`${btnOutline} ${btnSm}`}>
+            <ExternalLink size={15} /> Acheter sur Aviasales{order.gate ? ` (${order.gate})` : ""}
+          </a>
+        )}
+        {canCancel && (
+          <button type="button" onClick={() => onAction("CANCELLED")} className={`${btnDanger} ${btnSm}`}>
+            <X size={15} /> {canManage ? "Annuler" : "Annuler ma demande"}
           </button>
         )}
       </div>
@@ -185,6 +262,7 @@ export default function Conversation() {
   const { user } = useAuth();
   const location = useLocation();
   const justReserved = location.state?.justReserved; // { trackingCode } après une réservation
+  const justOrdered = location.state?.justOrdered; // { reference } après une demande de billet
   const chat = useConversation(id);
   const [pendingStatus, setPendingStatus] = useState(null);
 
@@ -260,7 +338,8 @@ export default function Conversation() {
   const detail = chat.detail;
   const viewerSide = detail?.viewerSide;
   const lastMine = [...chat.messages].reverse().find((m) => m.senderType === viewerSide && !m.pending && !m.failed);
-  const otherName = detail && (viewerSide === "CUSTOMER" ? ownerLabel(detail.owner) : detail.reservation.clientName);
+  const isFlight = detail?.kind === "FLIGHT";
+  const otherName = detail && (viewerSide === "CUSTOMER" ? ownerLabel(detail.owner) : subjectOf(detail).clientName);
 
   return (
     <Layout variant={layoutVariantFor(user)}>
@@ -274,12 +353,23 @@ export default function Conversation() {
             {!user && " Sans compte, cette conversation reste accessible depuis cet appareil : notez bien votre code."}
           </Notice>
         )}
+        {justOrdered && (
+          <Notice tone="success">
+            <b>Demande envoyée !</b> Référence : <b className="font-mono">{justOrdered.reference}</b>. L&apos;équipe
+            MoveColis va vous confirmer ici le prix et le mode de paiement, puis vous envoyer votre billet.
+            {!user && " Sans compte, cette conversation reste accessible depuis cet appareil : notez bien votre référence."}
+          </Notice>
+        )}
 
         {chat.loading && !detail ? (
           <Loader />
         ) : (
           <>
-            <ConversationHeader detail={detail} onAction={setPendingStatus} />
+            {isFlight ? (
+              <FlightOrderHeader detail={detail} onAction={setPendingStatus} />
+            ) : (
+              <ConversationHeader detail={detail} onAction={setPendingStatus} />
+            )}
 
             {/* ===== Fil de discussion ===== */}
             <div className="border border-line-light rounded-2xl bg-surface mt-3 overflow-hidden flex flex-col">
@@ -350,8 +440,19 @@ export default function Conversation() {
       {pendingStatus && detail && (
         <ReservationStatusModal
           nextStatus={pendingStatus}
-          title={pendingStatus === "CANCELLED" && viewerSide === "CUSTOMER" ? "Annuler ma réservation" : undefined}
-          summary={`${detail.reservation.clientName} · ${formatKg(detail.reservation.kilos)} · ${routeLabel(detail.trip)} (${detail.reservation.trackingCode}).`}
+          variant={isFlight ? "flight" : "reservation"}
+          title={
+            pendingStatus === "CANCELLED" && viewerSide === "CUSTOMER"
+              ? isFlight
+                ? "Annuler ma demande"
+                : "Annuler ma réservation"
+              : undefined
+          }
+          summary={
+            isFlight
+              ? `${detail.flightOrder.clientName} · ${detail.flightOrder.flight.origin.name} → ${detail.flightOrder.flight.destination.name} · ${passengersLabel(detail.flightOrder)} (${detail.flightOrder.reference}).`
+              : `${detail.reservation.clientName} · ${formatKg(detail.reservation.kilos)} · ${routeLabel(detail.trip)} (${detail.reservation.trackingCode}).`
+          }
           onClose={() => setPendingStatus(null)}
           onConfirm={async (note) => {
             await chat.changeStatus(pendingStatus, note);

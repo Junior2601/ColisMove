@@ -8,6 +8,7 @@ import RequireRole from "./components/RequireRole";
 // Visiteur
 import Home from "./pages/visiteur/Home";
 import TripDetail from "./pages/visiteur/TripDetail";
+import FlightOffer from "./pages/visiteur/FlightOffer";
 import Tracking from "./pages/visiteur/Tracking";
 import { Login, Register } from "./pages/visiteur/Auth";
 import ForgotPassword from "./pages/visiteur/ForgotPassword";
@@ -37,6 +38,7 @@ import AdminReservations from "./pages/admin/AdminReservations";
 import Approbations from "./pages/admin/Approbations";
 import Parametres from "./pages/admin/Parametres";
 import Campagnes from "./pages/admin/Campagnes";
+import AdminBillets from "./pages/admin/AdminBillets";
 
 export default function App() {
   // PWA : installation sur l'écran d'accueil + notifications push
@@ -53,6 +55,7 @@ export default function App() {
               {/* ===== Visiteur (public) ===== */}
               <Route path="/" element={<Home />} />
               <Route path="/voyage/:id" element={<TripDetail />} />
+              <Route path="/billet/:id" element={<FlightOffer />} />
               <Route path="/suivi" element={<Tracking />} />
               <Route path="/connexion" element={<Login />} />
               <Route path="/inscription" element={<Register />} />
@@ -101,6 +104,7 @@ export default function App() {
                 <Route path="/admin/approbations" element={<Approbations />} />
                 <Route path="/admin/parametres" element={<Parametres />} />
               <Route path="/admin/campagnes" element={<Campagnes />} />
+                <Route path="/admin/billets" element={<AdminBillets />} />
               </Route>
 
               {/* URL inconnue → accueil */}

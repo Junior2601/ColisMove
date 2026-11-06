@@ -10,18 +10,31 @@ import { useSocketEvent } from "../hooks/useSocketEvent";
 import { listGuestAccess } from "../lib/guestAccess";
 import { formatTripShortDate, ownerLabel, routeLabel, timeAgo } from "../lib/format";
 import { paths } from "../lib/hashid";
-import { RESERVATION_STATUS } from "../lib/status";
+import { FLIGHT_ORDER_STATUS, RESERVATION_STATUS } from "../lib/status";
 
 const ADMIN_SCOPES = [
   { key: "all", label: "Toutes les conversations" },
   { key: "mine", label: "Mes voyages" },
 ];
 
+// Réservation de kilos ou demande de billet d'avion
+const subjectOf = (c) => (c.kind === "FLIGHT" ? c.flightOrder : c.reservation);
+
 // Avec qui je parle, selon mon côté de la conversation
 function counterpartLabel(c) {
+  const subject = subjectOf(c);
   if (c.viewerSide === "CUSTOMER") return ownerLabel(c.owner);
-  if (c.viewerSide === "OWNER") return `${c.reservation.clientName}${c.reservation.isGuest ? " (visiteur)" : ""}`;
-  return `${c.reservation.clientName} ↔ ${ownerLabel(c.owner)}`; // admin observateur
+  if (c.viewerSide === "OWNER") return `${subject.clientName}${subject.isGuest ? " (visiteur)" : ""}`;
+  return `${subject.clientName} ↔ ${ownerLabel(c.owner)}`; // admin observateur
+}
+
+// Ligne de contexte : trajet, date et code
+function contextLabel(c) {
+  if (c.kind === "FLIGHT") {
+    const f = c.flightOrder;
+    return `✈️ Billet ${f.originCity} → ${f.destinationCity} · ${formatTripShortDate(f.departureAt)} · ${f.reference}`;
+  }
+  return `${routeLabel(c.trip)} · ${formatTripShortDate(c.trip.departureAt)} · ${c.reservation.trackingCode}`;
 }
 
 function lastMessagePreview(c) {
@@ -32,7 +45,7 @@ function lastMessagePreview(c) {
 }
 
 function ConversationRow({ c }) {
-  const status = RESERVATION_STATUS[c.reservation.status];
+  const status = c.kind === "FLIGHT" ? FLIGHT_ORDER_STATUS[c.flightOrder.status] : RESERVATION_STATUS[c.reservation.status];
   const unread = c.unreadCount > 0;
 
   return (
@@ -48,9 +61,7 @@ function ConversationRow({ c }) {
           <span className={`text-[14.5px] truncate ${unread ? "font-extrabold" : "font-bold"}`}>{counterpartLabel(c)}</span>
           <span className="text-[11.5px] text-muted shrink-0">{c.lastMessage && timeAgo(c.lastMessage.createdAt)}</span>
         </div>
-        <div className="text-xs text-muted truncate">
-          {routeLabel(c.trip)} · {formatTripShortDate(c.trip.departureAt)} · {c.reservation.trackingCode}
-        </div>
+        <div className="text-xs text-muted truncate">{contextLabel(c)}</div>
         <div className="flex justify-between items-center gap-2 mt-0.5">
           <span className={`text-[13px] truncate ${unread ? "text-ink font-semibold" : "text-muted"}`}>
             {lastMessagePreview(c)}
@@ -186,7 +197,7 @@ export default function Messages() {
       <div className="max-w-2xl mx-auto pb-8">
         <h1 className="text-2xl font-extrabold tracking-tight mt-5 mb-1">Messages</h1>
         <p className="text-muted text-sm mb-4">
-          Une conversation par réservation : c'est ici que se confirment et s'organisent les envois.
+          Une conversation par réservation ou demande de billet : c'est ici que tout se confirme et s'organise.
         </p>
         {loading ? <Loader /> : user ? <AccountInbox user={user} /> : <GuestInbox />}
       </div>

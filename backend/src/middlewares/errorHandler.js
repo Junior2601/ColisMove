@@ -10,6 +10,9 @@ const CONSTRAINT_ERRORS = {
   chk_reserved_positive: [409, "Incohérence sur les kilos réservés du voyage."],
   chk_arrival_after_departure: [400, "L'arrivée doit être postérieure au départ."],
   chk_stop_consistency: [400, "Escale incomplète : ville ET durée, ou aucune des deux."],
+  uq_flight_orders_reference: [409, "Référence déjà existante, réessayez."],
+  chk_flight_orders_seats: [400, "9 passagers au maximum par demande."],
+  chk_flight_orders_infants: [400, "Un bébé par adulte au maximum."],
 };
 
 // Codes d'erreur PostgreSQL génériques

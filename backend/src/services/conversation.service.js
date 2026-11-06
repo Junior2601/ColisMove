@@ -1,8 +1,10 @@
 import * as conversationModel from "../models/conversation.model.js";
 import * as messageModel from "../models/message.model.js";
 import * as reservationService from "./reservation.service.js";
+import * as flightOrderService from "./flightOrder.service.js";
 import * as notificationService from "./notification.service.js";
 import * as realtime from "../socket/realtime.js";
+import { RESERVATION_STATUSES } from "../config/constants.js";
 import { paths } from "../utils/hashid.js";
 import { ownerDisplayName } from "../utils/names.js";
 import { hashToken, safeEqualHex } from "../utils/token.js";
@@ -54,6 +56,14 @@ export async function countUnread(user) {
 export async function getDetail(conversationId, actor) {
   const { side } = await resolveAccess(conversationId, actor);
   const detail = await conversationModel.findDetail(conversationId);
+  if (detail.kind === "FLIGHT") {
+    // Le lien d'achat Aviasales n'est montré qu'à l'équipe MoveColis
+    const order =
+      side === "CUSTOMER"
+        ? flightOrderService.forCustomer(detail.flightOrder)
+        : flightOrderService.withPurchaseUrl(detail.flightOrder);
+    return { ...detail, flightOrder: order, viewerSide: side };
+  }
   return { ...detail, viewerSide: side };
 }
 
@@ -104,10 +114,11 @@ async function notifyNewMessage(conversationId, info, side, actor, message) {
   if (!recipients.length) return;
 
   try {
-    const { reservation, owner } = await conversationModel.findDetail(conversationId);
+    const detail = await conversationModel.findDetail(conversationId);
+    const subject = detail.reservation ?? detail.flightOrder; // réservation de kilos ou demande de billet
     const senderName = {
-      CUSTOMER: `${reservation.clientName}${reservation.isGuest ? " (visiteur)" : ""}`,
-      OWNER: ownerDisplayName(owner),
+      CUSTOMER: `${subject.clientName}${subject.isGuest ? " (visiteur)" : ""}`,
+      OWNER: ownerDisplayName(detail.owner),
       ADMIN: "Équipe MoveColis",
     }[side];
 
@@ -136,12 +147,14 @@ export async function markRead(conversationId, actor) {
 }
 
 /**
- * Faire avancer (ou annuler) la réservation depuis la conversation.
+ * Faire avancer (ou annuler) la réservation — ou la demande de billet — depuis la conversation.
  *  - propriétaire et admin : toutes les étapes du workflow
  *  - client / visiteur     : uniquement annuler, tant que ce n'est pas confirmé
  */
 export async function changeReservationStatus(conversationId, actor, nextStatus, note) {
   const { side, info } = await resolveAccess(conversationId, actor);
+  if (info.flightOrderId) return changeFlightOrderStatus(info, side, actor, nextStatus, note);
+  if (!RESERVATION_STATUSES.includes(nextStatus)) throw badRequest("Statut inconnu pour une réservation.");
 
   if (side === "CUSTOMER") {
     if (nextStatus !== "CANCELLED") {
@@ -159,5 +172,23 @@ export async function changeReservationStatus(conversationId, actor, nextStatus,
     actorId: actor.user.id,
     note,
     cancelledBy: side === "ADMIN" ? "par l'équipe MoveColis" : "par le propriétaire du voyage",
+  });
+}
+
+async function changeFlightOrderStatus(info, side, actor, nextStatus, note) {
+  if (side === "CUSTOMER") {
+    if (nextStatus !== "CANCELLED") throw forbidden("Seule l'équipe MoveColis peut faire avancer la demande.");
+    const order = await flightOrderService.updateStatus(info.flightOrderId, "CANCELLED", {
+      actorId: actor.user?.id ?? null,
+      note,
+      onlyFromStatuses: ["PENDING"],
+      cancelledBy: "par le client",
+    });
+    return flightOrderService.forCustomer(order);
+  }
+  return flightOrderService.updateStatus(info.flightOrderId, nextStatus, {
+    actorId: actor.user.id,
+    note,
+    cancelledBy: "par l'équipe MoveColis",
   });
 }

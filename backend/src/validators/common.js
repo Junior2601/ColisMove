@@ -42,3 +42,9 @@ export const phoneSchema = z
   .trim()
   .transform(normalizePhone)
   .pipe(z.string().regex(/^\d{8,15}$/, "Numéro invalide : format international attendu (ex. +225 07 12 34 56 78)."));
+
+// "true" / "1" dans l'URL → true
+export const queryBoolean = z
+  .enum(["true", "false", "1", "0"])
+  .optional()
+  .transform((v) => v === "true" || v === "1");

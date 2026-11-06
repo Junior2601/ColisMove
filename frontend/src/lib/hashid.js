@@ -15,6 +15,7 @@ export function decodeId(hash) {
 
 export const paths = {
   trip: (id) => `/voyage/${encodeId(id)}`,
+  flightOffer: (id) => `/billet/${encodeId(id)}`,
   conversation: (id) => `/messages/${encodeId(id)}`,
   tripReservations: (base, tripId) => `${base}?voyage=${encodeId(tripId)}`,
 };

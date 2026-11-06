@@ -34,6 +34,12 @@ export const env = {
     pass: process.env.SMTP_PASS || null,
   },
   corsOrigins: (process.env.CORS_ORIGIN ?? "http://localhost:5173").split(",").map((o) => o.trim()),
+  // Billets d'avion : prix Aviasales via l'API partenaire Travelpayouts (clé gratuite sur travelpayouts.com)
+  aviasales: {
+    token: process.env.TRAVELPAYOUTS_TOKEN || null, // sans clé : la recherche de billets est indisponible
+    marker: process.env.TRAVELPAYOUTS_MARKER || null, // identifiant partenaire ajouté aux liens aviasales.ru
+    apiUrl: (process.env.TRAVELPAYOUTS_API_URL ?? "https://api.travelpayouts.com").replace(/\/$/, ""),
+  },
 };
 
 export const isDev = env.nodeEnv === "development";

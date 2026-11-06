@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import {
-  LogOut, ChevronRight, Package, Plane, LayoutDashboard, Settings, UserCircle, MessageCircle, KeyRound, Megaphone,
+  LogOut, ChevronRight, Package, Plane, LayoutDashboard, Settings, UserCircle, MessageCircle, KeyRound, Megaphone, Ticket,
 } from "lucide-react";
 import Layout from "../components/Layout";
 import AppSettings from "../components/AppSettings";
@@ -26,6 +26,7 @@ const SHORTCUTS = {
   ADMIN: [
     { to: "/admin", icon: LayoutDashboard, label: "Administration" },
     { to: "/admin/approbations", icon: UserCircle, label: "Approbations voyageurs" },
+    { to: "/admin/billets", icon: Ticket, label: "Billets d'avion" },
     { to: "/admin/parametres", icon: Settings, label: "Paramètres de messagerie" },
     { to: "/admin/campagnes", icon: Megaphone, label: "Campagnes et notifications" },
   ],

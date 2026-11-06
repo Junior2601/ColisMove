@@ -35,6 +35,23 @@ export const NEXT_RESERVATION_STEP = {
 // Annulable tant que le colis n'a pas décollé
 export const CANCELLABLE_RESERVATION_STATUSES = ["PENDING", "CONFIRMED", "RECEIVED"];
 
+/* ===== Demandes de billets d'avion (même workflow que le backend) ===== */
+
+export const FLIGHT_ORDER_STATUS = {
+  PENDING:   { label: "À traiter",   tone: "pending" },
+  PAID:      { label: "Payée",       tone: "info" },
+  ISSUED:    { label: "Billet émis", tone: "success" },
+  CANCELLED: { label: "Annulée",     tone: "danger" },
+};
+
+export const NEXT_FLIGHT_ORDER_STEP = {
+  PENDING: { status: "PAID",   action: "Paiement reçu" },
+  PAID:    { status: "ISSUED", action: "Billet émis" },
+};
+
+// L'équipe annule tant que le billet n'est pas émis ; le client, seulement avant le paiement
+export const CANCELLABLE_FLIGHT_ORDER_STATUSES = ["PENDING", "PAID"];
+
 export const TRAVELER_STATUS = {
   PENDING:  { label: "En attente", tone: "pending" },
   APPROVED: { label: "Approuvé",   tone: "success" },

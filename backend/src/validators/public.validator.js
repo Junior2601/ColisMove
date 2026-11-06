@@ -1,11 +1,5 @@
 import { z } from "zod";
-import { nullableField, phoneSchema, searchQuery } from "./common.js";
-
-// "true" / "1" dans l'URL → true
-const queryBoolean = z
-  .enum(["true", "false", "1", "0"])
-  .optional()
-  .transform((v) => v === "true" || v === "1");
+import { nullableField, phoneSchema, queryBoolean, searchQuery } from "./common.js";
 
 export const listPublicTripsQuery = z.object({
   q: searchQuery, // ville de départ, d'escale ou d'arrivée

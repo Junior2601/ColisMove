@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { nullableField, pagination } from "./common.js";
-import { RESERVATION_STATUSES } from "../config/constants.js";
+import { FLIGHT_ORDER_STATUSES, RESERVATION_STATUSES } from "../config/constants.js";
 
 export const listConversationsQuery = z.object({
   scope: z.enum(["all", "mine"]).optional(), // admin : toutes ou seulement ses voyages
@@ -17,7 +17,10 @@ export const sendMessageBody = z.object({
   clientId: z.string().max(64).optional(),
 });
 
+// Statuts d'une réservation de kilos ou d'une demande de billet (le service vérifie selon la conversation)
+const CONVERSATION_STATUSES = [...new Set([...RESERVATION_STATUSES, ...FLIGHT_ORDER_STATUSES])];
+
 export const changeStatusBody = z.object({
-  status: z.enum(RESERVATION_STATUSES),
+  status: z.enum(CONVERSATION_STATUSES),
   note: nullableField(z.string().trim().max(255)),
 });

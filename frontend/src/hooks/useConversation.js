@@ -134,6 +134,10 @@ export function useConversation(conversationId) {
       if (event.conversationId !== id) return;
       setDetail((d) => d && { ...d, reservation: { ...d.reservation, ...event.reservation } });
     };
+    const onFlightOrder = (event) => {
+      if (event.conversationId !== id) return;
+      setDetail((d) => d && { ...d, flightOrder: { ...d.flightOrder, ...event.flightOrder } });
+    };
     const onVisible = () => document.visibilityState === "visible" && markRead();
 
     if (socket.connected) join();
@@ -143,6 +147,7 @@ export function useConversation(conversationId) {
     socket.on("typing", onTyping);
     socket.on("conversation:read", onRead);
     socket.on("reservation:updated", onReservation);
+    socket.on("flight-order:updated", onFlightOrder);
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
@@ -155,6 +160,7 @@ export function useConversation(conversationId) {
       socket.off("typing", onTyping);
       socket.off("conversation:read", onRead);
       socket.off("reservation:updated", onReservation);
+      socket.off("flight-order:updated", onFlightOrder);
       document.removeEventListener("visibilitychange", onVisible);
       clearTimeout(readTimer.current);
       clearTimeout(typingTimer.current);
@@ -248,9 +254,11 @@ export function useConversation(conversationId) {
   /* ---------- Statut de la réservation (le message système arrive par Socket.io) ---------- */
   const changeStatus = useCallback(
     async (status, note) => {
-      const reservation = await conversationsApi.changeStatus(id, status, note);
-      setDetail((d) => d && { ...d, reservation: { ...d.reservation, status: reservation.status } });
-      return reservation;
+      // Réservation de kilos ou demande de billet, selon la conversation
+      const updated = await conversationsApi.changeStatus(id, status, note);
+      const key = updated.reference ? "flightOrder" : "reservation";
+      setDetail((d) => d && { ...d, [key]: { ...d[key], status: updated.status } });
+      return updated;
     },
     [id]
   );

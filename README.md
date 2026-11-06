@@ -43,6 +43,7 @@ movecolis/
    certbot --nginx -d movecolis.com -d www.movecolis.com              # HTTPS
    ```
 5. **Secrets du VPS** (en tant que deploy, dans `/opt/movecolis`) : `.env` et `.env.api` d'après les modèles, puis `chmod 600 .env .env.api`.
+   Billets d'avion : ajoutez `TRAVELPAYOUTS_TOKEN` (jeton API gratuit sur travelpayouts.com, programme Aviasales) et, si vous l'avez, `TRAVELPAYOUTS_MARKER` dans `.env.api`. La vente s'active ensuite dans *Admin → Billets d'avion → Règles de prix*.
 6. **GitHub** → *Settings* : environnement `production` ; secrets `VPS_HOST`, `VPS_USER` (= deploy), `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS` ; variable `DOMAIN`.
 7. **Push sur main** → *Actions*. La base vide reçoit le schéma complet automatiquement.
 8. **Compte admin** (une fois) : `ssh deploy@IP "cd /opt/movecolis && docker compose run --rm api npm run db:seed"`.

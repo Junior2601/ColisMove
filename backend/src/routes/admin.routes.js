@@ -1,6 +1,16 @@
 import { Router } from "express";
 import * as admin from "../controllers/admin.controller.js";
 import * as marketing from "../controllers/marketing.controller.js";
+import * as flight from "../controllers/flight.controller.js";
+import {
+  adminOffersQuery,
+  createFlightOptionBody,
+  listFlightOrdersQuery,
+  updateFlightOfferBody,
+  updateFlightOptionBody,
+  updateFlightOrderStatusBody,
+  updateFlightSettingsBody,
+} from "../validators/flight.validator.js";
 import { audienceQuery, createCampaignBody, updateCampaignBody } from "../validators/marketing.validator.js";
 import { authenticate, authorize } from "../middlewares/auth.js";
 import { validate } from "../middlewares/validate.js";
@@ -60,5 +70,21 @@ router.get("/marketing/stats", marketing.stats);
 // Parametres.jsx
 router.get("/settings", admin.getSettings);
 router.patch("/settings", validate({ body: updateSettingsBody }), admin.updateSettings);
+
+// AdminBillets.jsx : demandes de billets, billets Aviasales modifiables, règles de prix et options
+router.get("/flight-orders", validate({ query: listFlightOrdersQuery }), flight.listOrders);
+router.patch(
+  "/flight-orders/:id/status",
+  validate({ params: idParam, body: updateFlightOrderStatusBody }),
+  flight.updateOrderStatus
+);
+router.get("/flights/searches", flight.recentSearches);
+router.get("/flights/offers", validate({ query: adminOffersQuery }), flight.listOffers);
+router.patch("/flights/offers/:id", validate({ params: idParam, body: updateFlightOfferBody }), flight.updateOffer);
+router.get("/flights/settings", flight.getSettings);
+router.patch("/flights/settings", validate({ body: updateFlightSettingsBody }), flight.updateSettings);
+router.post("/flights/options", validate({ body: createFlightOptionBody }), flight.createOption);
+router.patch("/flights/options/:id", validate({ params: idParam, body: updateFlightOptionBody }), flight.updateOption);
+router.delete("/flights/options/:id", validate({ params: idParam }), flight.deleteOption);
 
 export default router;

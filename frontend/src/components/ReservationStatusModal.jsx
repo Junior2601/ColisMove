@@ -1,23 +1,44 @@
 import { useState } from "react";
 import { ErrorState, Field, Modal, btnDanger, btnOutline, btnPrimary, btnSm, inputClass } from "./ui";
 import { errorMessage } from "../api/client";
-import { RESERVATION_STATUS } from "../lib/status";
+import { FLIGHT_ORDER_STATUS, RESERVATION_STATUS } from "../lib/status";
 
-// Exemples de notes selon l'étape (visibles dans le suivi et la conversation)
-const NOTE_PLACEHOLDERS = {
-  CONFIRMED: "Ex. Remise du colis samedi à Cocody",
-  RECEIVED: "Ex. Colis pesé : 5 kg",
-  IN_TRANSIT: "Ex. Escale à Istanbul",
-  ARRIVED: "Ex. Arrivé à Moscou",
-  DELIVERED: "Ex. Remis au destinataire",
-  CANCELLED: "Ex. Changement de programme",
+// Libellés, aides et exemples de notes (visibles dans le suivi et la conversation) selon ce qui change de statut
+const VARIANTS = {
+  reservation: {
+    labels: RESERVATION_STATUS,
+    cancelLabel: "Annuler la réservation",
+    cancelHint: "Les kilos seront remis en vente sur le voyage. Action définitive.",
+    stepHint: "Cette étape apparaîtra dans le suivi et dans la conversation.",
+    placeholders: {
+      CONFIRMED: "Ex. Remise du colis samedi à Cocody",
+      RECEIVED: "Ex. Colis pesé : 5 kg",
+      IN_TRANSIT: "Ex. Escale à Istanbul",
+      ARRIVED: "Ex. Arrivé à Moscou",
+      DELIVERED: "Ex. Remis au destinataire",
+      CANCELLED: "Ex. Changement de programme",
+    },
+  },
+  flight: {
+    labels: FLIGHT_ORDER_STATUS,
+    cancelLabel: "Annuler la demande",
+    cancelHint: "La demande de billet sera close. Action définitive.",
+    stepHint: "Cette étape apparaîtra dans la conversation et le client sera prévenu.",
+    placeholders: {
+      PAID: "Ex. Orange Money reçu, réf. 4521",
+      ISSUED: "Ex. Numéro de réservation (PNR) : ABC123",
+      CANCELLED: "Ex. Plus de place à ce prix",
+    },
+  },
 };
 
 /**
  * Confirmation d'un changement de statut avec note facultative.
  * onConfirm(note) fait l'appel API ; la modale gère l'attente et l'erreur.
+ * variant : "reservation" (kilos) ou "flight" (demande de billet d'avion)
  */
-export default function ReservationStatusModal({ nextStatus, summary, title, onConfirm, onClose }) {
+export default function ReservationStatusModal({ nextStatus, summary, title, onConfirm, onClose, variant = "reservation" }) {
+  const { labels, cancelLabel, cancelHint, stepHint, placeholders } = VARIANTS[variant];
   const cancelling = nextStatus === "CANCELLED";
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -37,14 +58,12 @@ export default function ReservationStatusModal({ nextStatus, summary, title, onC
   return (
     <Modal
       open
-      title={title ?? (cancelling ? "Annuler la réservation" : `Passer à « ${RESERVATION_STATUS[nextStatus].label} »`)}
+      title={title ?? (cancelling ? cancelLabel : `Passer à « ${labels[nextStatus].label} »`)}
       onClose={submitting ? undefined : onClose}
     >
       <p className="text-sm text-muted mb-4">
         {summary}{" "}
-        {cancelling
-          ? "Les kilos seront remis en vente sur le voyage. Action définitive."
-          : "Cette étape apparaîtra dans le suivi et dans la conversation."}
+        {cancelling ? cancelHint : stepHint}
       </p>
 
       <Field label="Note (facultative)">
@@ -52,7 +71,7 @@ export default function ReservationStatusModal({ nextStatus, summary, title, onC
           value={note}
           maxLength={255}
           onChange={(e) => setNote(e.target.value)}
-          placeholder={NOTE_PLACEHOLDERS[nextStatus]}
+          placeholder={placeholders[nextStatus]}
           className={inputClass}
         />
       </Field>
@@ -69,7 +88,7 @@ export default function ReservationStatusModal({ nextStatus, summary, title, onC
           disabled={submitting}
           className={`${cancelling ? btnDanger : btnPrimary} ${btnSm}`}
         >
-          {submitting ? "Enregistrement…" : cancelling ? "Annuler la réservation" : "Confirmer"}
+          {submitting ? "Enregistrement…" : cancelling ? cancelLabel : "Confirmer"}
         </button>
       </div>
     </Modal>

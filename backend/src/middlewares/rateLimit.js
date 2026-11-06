@@ -22,6 +22,9 @@ export const registerLimiter = limiter(60, 5, "Trop d'inscriptions depuis cette 
 // Réservations : 10 / heure par IP (évite qu'un visiteur bloque tous les kilos d'un voyage)
 export const reservationLimiter = limiter(60, 10, "Trop de réservations depuis cette connexion. Réessayez plus tard.");
 
+// Billets d'avion : 300 recherches / 15 min par IP (l'autocomplétion des villes en fait plusieurs par recherche)
+export const flightSearchLimiter = limiter(15, 300, "Trop de recherches de billets. Réessayez dans quelques minutes.");
+
 // Mot de passe oublié : 5 demandes / heure par IP (évite d'inonder une boîte mail)
 export const forgotPasswordLimiter = limiter(60, 5, "Trop de demandes. Réessayez dans une heure.");
 

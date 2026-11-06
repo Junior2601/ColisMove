@@ -30,6 +30,36 @@ export const RESERVATION_STATUS_LABELS = {
   CANCELLED: "Annulée",
 };
 
+/* ---------- Billets d'avion ---------- */
+
+// Demande de billet : reçue → payée → billet émis (ou annulée avant l'émission)
+export const FLIGHT_ORDER_STATUSES = ["PENDING", "PAID", "ISSUED", "CANCELLED"];
+export const FLIGHT_ORDER_TRANSITIONS = {
+  PENDING: ["PAID", "CANCELLED"],
+  PAID: ["ISSUED", "CANCELLED"],
+  ISSUED: [],
+  CANCELLED: [],
+};
+export const FLIGHT_ORDER_STATUS_LABELS = {
+  PENDING: "À traiter",
+  PAID: "Payée",
+  ISSUED: "Billet émis",
+  CANCELLED: "Annulée",
+};
+export const FLIGHT_ORDER_SYSTEM_MESSAGES = {
+  PAID: "💳 Paiement reçu : votre billet est en cours d'achat.",
+  ISSUED: "🎫 Billet émis : bon voyage !",
+  CANCELLED: "❌ Demande de billet annulée.",
+};
+export const FLIGHT_ORDER_NOTIFICATION_TITLES = {
+  PAID: "Paiement reçu 💳",
+  ISSUED: "Votre billet est émis 🎫",
+  CANCELLED: "Demande de billet annulée ❌",
+};
+export const FLIGHT_SOURCE_CURRENCIES = ["RUB", "EUR", "USD"];
+export const FLIGHT_MAX_PASSENGERS = 9;
+export const FLIGHT_SEARCH_MONTHS_AHEAD = 11; // Aviasales ne garde pas de prix au-delà d'environ un an
+
 // Variables utilisables dans le modèle de premier message
 export const TEMPLATE_VARIABLES = ["kilos", "trajet", "date", "nom", "code"];
 

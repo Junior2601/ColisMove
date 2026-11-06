@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Bell, CalendarDays, Clock, Megaphone, MessageCircle, Package, Plane, UserCheck, X } from "lucide-react";
+import { Bell, CalendarDays, Clock, Megaphone, MessageCircle, Package, Plane, Ticket, UserCheck, X } from "lucide-react";
 import { notificationsApi } from "../api/notifications";
 import { useAuth } from "./AuthContext";
 import { useSocketEvent } from "../hooks/useSocketEvent";
@@ -21,6 +21,8 @@ export const NOTIFICATION_ICONS = {
   DEPARTURE_SOON: Clock, // « Il reste 3 jours pour confier votre colis »
   WEEKLY_DIGEST: CalendarDays, // « Des voyageurs partent vers X cette semaine »
   CAMPAIGN: Megaphone, // campagne saisonnière
+  FLIGHT_ORDER: Ticket, // (admin) nouvelle demande de billet d'avion
+  FLIGHT_ORDER_STATUS: Ticket, // paiement reçu, billet émis, annulation
 };
 
 /* ===== Toast affiché quand une notification arrive pendant que le site est ouvert ===== */

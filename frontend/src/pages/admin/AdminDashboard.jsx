@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Plus, Plane, Package, UserCheck, Settings, ChevronRight, Megaphone } from "lucide-react";
+import { Plus, Plane, Package, UserCheck, Settings, ChevronRight, Megaphone, Ticket } from "lucide-react";
 import Layout from "../../components/Layout";
 import { Badge, StatCard, BarRow, ErrorState, Loader, btnPrimary, btnSm } from "../../components/ui";
 import { adminApi } from "../../api/admin";
@@ -58,6 +58,7 @@ function buildShortcuts({ trips, pending }) {
       meta: pending.travelers > 0 ? `${pending.travelers} en attente` : "À jour",
       pending: pending.travelers > 0,
     },
+    { to: "/admin/billets", icon: Ticket, label: "Billets d'avion", meta: null },
     { to: "/admin/campagnes", icon: Megaphone, label: "Campagnes et notifications", meta: null },
     { to: "/admin/parametres", icon: Settings, label: "Paramètres de messagerie", meta: null },
   ];

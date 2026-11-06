@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { Search } from "lucide-react";
+import { Package, Plane, Search } from "lucide-react";
 import Layout from "../../components/Layout";
 import TripCard from "../../components/TripCard";
+import FlightSearch from "../../components/flights/FlightSearch";
 import { ErrorState, LoadMore, Loader } from "../../components/ui";
 import { publicApi } from "../../api/public";
+import { flightsApi } from "../../api/flights";
 import { landingPathFor, useAuth } from "../../context/AuthContext";
-import { usePaginated } from "../../hooks/useApi";
+import { useApi, usePaginated } from "../../hooks/useApi";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 // Chaque pastille correspond à des paramètres de GET /api/public/trips
@@ -29,9 +31,19 @@ function parseSearch(text) {
   return q ? { q } : {};
 }
 
+// Onglets de l'accueil : envoi de colis (par défaut) et achat de billets d'avion
+const TABS = [
+  { key: "colis", label: "Envoyer un colis", Icon: Package },
+  { key: "billets", label: "Billets d'avion", Icon: Plane },
+];
+
 export default function Home() {
   const { user, loading } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Vente de billets activée par l'admin ? (sinon, pas d'onglet : l'accueil reste celui des colis)
+  const flights = useApi(() => flightsApi.config().catch(() => null), []);
+  const flightsEnabled = Boolean(flights.data?.enabled);
+  const tab = flightsEnabled && searchParams.get("onglet") === "billets" ? "billets" : "colis";
   // Ouverture depuis l'icône de l'écran d'accueil (start_url "/?source=pwa" du manifeste)
   const openedFromApp = searchParams.get("source") === "pwa";
 
@@ -69,8 +81,62 @@ export default function Home() {
 
   return (
     <Layout>
+      {/* ===== Onglets Colis / Billets d'avion ===== */}
+      {flightsEnabled && (
+        <div role="tablist" aria-label="Services MoveColis" className="flex gap-1.5 bg-surface rounded-full p-1 mt-5 w-fit lg:mx-auto">
+          {TABS.map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setSearchParams(key === "billets" ? { onglet: "billets" } : {})}
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13.5px] font-bold transition ${
+                tab === key ? "bg-white text-ink shadow-card" : "text-muted hover:text-ink"
+              }`}
+            >
+              <Icon size={16} className={tab === key ? "text-primary" : ""} /> {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {searchParams.get("onglet") === "billets" && flights.loading && !flights.data ? (
+        <Loader />
+      ) : tab === "billets" ? (
+        <>
+          <section className="pt-5 pb-1 lg:pt-7 lg:text-center">
+            <h1 className="text-[26px] lg:text-[34px] font-extrabold tracking-tight leading-tight">
+              Votre <em className="not-italic text-primary">billet d'avion</em> au meilleur prix
+            </h1>
+            <p className="text-muted mt-2 text-[14.5px]">
+              Comparez les prix des compagnies, ajoutez vos bagages et options : l'équipe MoveColis confirme et émet
+              votre billet dans la messagerie.
+            </p>
+          </section>
+          <FlightSearch config={flights.data} />
+        </>
+      ) : (
+        <ParcelsTab
+          user={user}
+          query={query}
+          setQuery={setQuery}
+          filterKey={filterKey}
+          setFilterKey={setFilterKey}
+          trips={trips}
+          compactHero={flightsEnabled}
+        />
+      )}
+    </Layout>
+  );
+}
+
+/* ===== Onglet « Envoyer un colis » : recherche et grille des voyages ===== */
+function ParcelsTab({ user, query, setQuery, filterKey, setFilterKey, trips, compactHero }) {
+  return (
+    <>
       {/* ===== Héros ===== */}
-      <section className="pt-6 pb-2 lg:pt-10 lg:text-center">
+      <section className={`${compactHero ? "pt-5 lg:pt-7" : "pt-6 lg:pt-10"} pb-2 lg:text-center`}>
         <h1 className="text-[26px] lg:text-[34px] font-extrabold tracking-tight leading-tight">
           Envoyez vos colis avec les{" "}
           <em className="not-italic text-primary">kilos disponibles</em> des voyageurs
@@ -162,6 +228,6 @@ export default function Home() {
           </Link>
         </div>
       )}
-    </Layout>
+    </>
   );
 }
