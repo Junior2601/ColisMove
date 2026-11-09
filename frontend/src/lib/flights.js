@@ -11,7 +11,49 @@ export const airlineLogoUrl = (code) => `https://pics.avs.io/120/40/${code}.png`
 export const formatDuration = (minutes) =>
   minutes ? `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")}` : "";
 
-export const stopsLabel = (transfers) => (transfers ? plural(transfers, "escale") : "Vol direct");
+// Villes d'escale : "Doha", "Istanbul, Nice" (code de l'aéroport si la ville n'est pas connue)
+export const stopCitiesText = (stops = []) => stops.map((stop) => stop.name ?? stop.code).join(", ");
+
+// "Vol direct", "Escale à Doha", "2 escales : Istanbul, Nice" ("1 escale" si les villes ne sont pas connues)
+export function stopsLabel(transfers, stops = []) {
+  if (!transfers) return "Vol direct";
+  const cities = stopCitiesText(stops);
+  if (!cities) return plural(transfers, "escale");
+  return transfers === 1 ? `Escale à ${cities}` : `${plural(transfers, "escale")} : ${cities}`;
+}
+
+// Version courte, sous la ligne du vol : "Direct", "via Doha", "via Istanbul, Nice"
+export function stopsShortLabel(transfers, stops = []) {
+  if (!transfers) return "Direct";
+  const cities = stopCitiesText(stops);
+  return cities ? `via ${cities}` : plural(transfers, "escale");
+}
+
+// Détail : "Doha (DOH)", "Istanbul (IST → SAW, changement d'aéroport), Nice (NCE)"
+export function stopsDetail(transfers, stops = []) {
+  if (!transfers) return "Vol direct";
+  if (!stops.length) return plural(transfers, "escale");
+  return stops
+    .map((stop) => {
+      const airports = stop.airports ?? [stop.code];
+      const change = airports.length > 1 ? `${airports.join(" → ")}, changement d'aéroport` : airports[0];
+      return `${stop.name ?? stop.code} (${change})`;
+    })
+    .join(", ");
+}
+
+// Jours entre la date de départ et celle d'arrivée (heures locales) : 0, 1, 2…
+export function arrivalDayShift(departureAt, arrivalAt) {
+  if (!arrivalAt) return 0;
+  return Math.round((Date.parse(`${arrivalAt.slice(0, 10)}T00:00Z`) - Date.parse(`${departureAt.slice(0, 10)}T00:00Z`)) / 86_400_000);
+}
+
+// "14:55", "14:55 (+1 j)" : heure locale d'arrivée ("" si Aviasales ne la donne pas)
+export function arrivalTimeLabel(departureAt, arrivalAt) {
+  if (!arrivalAt) return "";
+  const shift = arrivalDayShift(departureAt, arrivalAt);
+  return `${arrivalAt.slice(11, 16)}${shift > 0 ? ` (+${shift} j)` : ""}`;
+}
 
 // { adults: 2, children: 1, infants: 0 } → "2 adultes, 1 enfant"
 export function passengersLabel({ adults, children = 0, infants = 0 }) {

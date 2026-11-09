@@ -16,7 +16,7 @@ import {
   CANCELLABLE_FLIGHT_ORDER_STATUSES, CANCELLABLE_RESERVATION_STATUSES, FLIGHT_ORDER_STATUS, NEXT_FLIGHT_ORDER_STEP,
   NEXT_RESERVATION_STEP, RESERVATION_STATUS,
 } from "../lib/status";
-import { orderBaggageLabel, passengersLabel, removedBagsLabel, stopsLabel } from "../lib/flights";
+import { arrivalTimeLabel, orderBaggageLabel, passengersLabel, removedBagsLabel, stopsLabel } from "../lib/flights";
 
 // La conversation porte sur une réservation de kilos ou sur une demande de billet d'avion
 const subjectOf = (detail) => (detail.kind === "FLIGHT" ? detail.flightOrder : detail.reservation);
@@ -122,13 +122,14 @@ function FlightOrderHeader({ detail, onAction }) {
           <div className="font-extrabold text-[15.5px]">
             ✈️ {flight.origin.name} → {flight.destination.name} · {formatTripDate(flight.departureAt)} ·{" "}
             {formatTripTime(flight.departureAt)}
+            {flight.arrivalAt && ` → ${arrivalTimeLabel(flight.departureAt, flight.arrivalAt)}`}
           </div>
           <div className="text-[13px] text-muted">
             <span className="font-mono font-bold text-ink">{order.reference}</span> · {passengersLabel(order)} ·{" "}
             <b className="text-ink">{formatMoney(order.totalAmount, order.currency)}</b>
           </div>
           <div className="text-[13px] text-muted">
-            {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers)} ·{" "}
+            {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers, flight.stops)} ·{" "}
             {orderBaggageLabel(order)}
           </div>
           {order.bags.removed > 0 && (

@@ -38,6 +38,21 @@ const formatDuration = (minutes) =>
 
 export const routeOf = (order) => `${order.flight.origin.name} → ${order.flight.destination.name}`;
 
+// "vol direct", "escale à Doha", "2 escales : Istanbul, Nice" (code de l'aéroport si la ville est inconnue)
+export function stopsText(transfers, stops = []) {
+  if (!transfers) return "vol direct";
+  const names = stops.map((stop) => stop.name ?? stop.code);
+  if (!names.length) return plural(transfers, "escale");
+  return transfers === 1 ? `escale à ${names[0]}` : `${plural(transfers, "escale")} : ${names.join(", ")}`;
+}
+
+// "14:55" ou "14:55 (+1 j)" : heure locale d'arrivée, et jours après le départ
+export function arrivalText(departureAt, arrivalAt) {
+  if (!arrivalAt) return null;
+  const days = Math.round((Date.parse(`${arrivalAt.slice(0, 10)}T00:00Z`) - Date.parse(`${departureAt.slice(0, 10)}T00:00Z`)) / 86_400_000);
+  return `${arrivalAt.slice(11, 16)}${days > 0 ? ` (+${days} j)` : ""}`;
+}
+
 export function passengersText({ adults, children, infants }) {
   return [plural(adults, "adulte"), children && plural(children, "enfant"), infants && plural(infants, "bébé")]
     .filter(Boolean)
@@ -74,10 +89,11 @@ export function forCustomer(order) {
 function firstMessage(order, offer) {
   const lines = [
     "Bonjour ! Je souhaite acheter ce billet d'avion :",
-    `✈️ ${offer.origin.name} → ${offer.destination.name} · ${formatLocalDate(offer.departureAt)} à ${offer.departureAt.slice(11, 16)}`,
+    `✈️ ${offer.origin.name} → ${offer.destination.name} · ${formatLocalDate(offer.departureAt)} à ${offer.departureAt.slice(11, 16)}` +
+      (offer.arrivalAt ? `, arrivée à ${arrivalText(offer.departureAt, offer.arrivalAt)}` : ""),
     [
       `${offer.airlineName} ${offer.airline} ${offer.flightNumber}`,
-      offer.transfers ? plural(offer.transfers, "escale") : "vol direct",
+      stopsText(offer.transfers, offer.stops),
       formatDuration(offer.durationMinutes),
     ].filter(Boolean).join(" · "),
     `Passagers : ${passengersText(order)}`,
@@ -139,10 +155,12 @@ export async function createOrder(input, { user = null } = {}) {
     originAirport: offer.originAirport,
     destinationAirport: offer.destinationAirport,
     departureAt: offer.departureAt,
+    arrivalAt: offer.arrivalAt,
     airline: offer.airline,
     airlineName: publicOffer.airlineName,
     flightNumber: offer.flightNumber,
     transfers: offer.transfers,
+    stops: publicOffer.stops,
     durationMinutes: offer.durationMinutes,
     checkedBags: publicOffer.checkedBags,
     cabinKg: publicOffer.cabinKg,
@@ -279,12 +297,14 @@ function ticketDetails(order) {
   return [
     ["Référence", order.reference],
     ["Vol", `${routeOf(order)} · ${formatLocalDate(flight.departureAt)} à ${flight.departureAt.slice(11, 16)} (heure locale)`],
+    ...(flight.arrivalAt ? [["Arrivée", `${formatLocalDate(flight.arrivalAt)} à ${flight.arrivalAt.slice(11, 16)} (heure locale)`]] : []),
     [
       "Compagnie",
       [
         `${flight.airlineName ?? flight.airline} ${flight.airline} ${flight.flightNumber}`,
-        flight.transfers ? plural(flight.transfers, "escale") : "vol direct",
-      ].join(" · "),
+        stopsText(flight.transfers, flight.stops),
+        formatDuration(flight.durationMinutes),
+      ].filter(Boolean).join(" · "),
     ],
     ["Passagers", `${passengersText(order)} · ${order.clientName}`],
     ["Bagages", bagsText(order)],
@@ -396,6 +416,10 @@ export async function listFreedKilos({ period }) {
 export async function getFreedKilos(id) {
   const item = await flightOrderModel.findFreedKilos(id);
   if (!item) throw notFound("Aucun kilo libéré sur cette demande de billet.");
+  // Demande antérieure aux villes d'escale : seuls les aéroports sont connus, on retrouve les villes (formulaire pré-rempli)
+  if (item.flight.stops.some((stop) => !stop.name)) {
+    item.flight.stops = await aviasales.stopCities(item.flight.stops.flatMap((stop) => stop.airports));
+  }
   return toKilosView(item);
 }
 

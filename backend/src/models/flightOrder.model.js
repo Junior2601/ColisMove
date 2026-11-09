@@ -34,10 +34,12 @@ export function toFlightOrder(row) {
       originAirport: row.origin_airport,
       destinationAirport: row.destination_airport,
       departureAt: toLocalIso(row.departure_at),
+      arrivalAt: row.arrival_at ? toLocalIso(row.arrival_at) : null, // heure locale (null = non précisée)
       airline: row.airline,
       airlineName: row.airline_name,
       flightNumber: row.flight_number,
       transfers: row.transfers,
+      stops: row.stops ?? [], // [{ code, name, airports }] villes d'escale (name null : demande ancienne)
       durationMinutes: row.duration_minutes,
       checkedBags: row.checked_bags, // incluses par passager (hors bébés)
       cabinKg: row.cabin_kg,
@@ -82,10 +84,10 @@ export async function create(order, db = pool) {
        origin, destination, origin_city, destination_city, origin_airport, destination_airport, departure_at,
        airline, airline_name, flight_number, transfers, duration_minutes, checked_bags, cabin_kg, checked_bag_kg, link, gate,
        adults, children, infants, adult_price, child_price, infant_price, options, total_amount, currency,
-       client_email, bags_included, bags_kept, bag_refund, bag_discount, freed_kilos)
+       client_email, bags_included, bags_kept, bag_refund, bag_discount, freed_kilos, arrival_at, stops)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
              $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31::jsonb, $32, $33,
-             $34, $35, $36, $37, $38, $39)
+             $34, $35, $36, $37, $38, $39, $40, $41::jsonb)
      ON CONFLICT (reference) DO NOTHING
      RETURNING id`,
     [
@@ -98,6 +100,7 @@ export async function create(order, db = pool) {
       order.adults, order.children, order.infants, order.adultPrice, order.childPrice, order.infantPrice,
       JSON.stringify(order.options), order.totalAmount, order.currency,
       order.clientEmail, order.bags.included, order.bags.kept, order.bags.refund, order.bags.discount, order.bags.freedKilos,
+      order.arrivalAt ?? null, JSON.stringify(order.stops ?? []),
     ]
   );
   return rows[0]?.id ?? null;

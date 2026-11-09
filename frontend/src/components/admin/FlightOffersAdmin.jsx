@@ -10,7 +10,7 @@ import { errorMessage } from "../../api/client";
 import { useApi } from "../../hooks/useApi";
 import { useFlash } from "../../hooks/useFlash";
 import { currencySymbol, formatMoney, formatNumber, formatTripDate, formatTripTime, plural, timeAgo } from "../../lib/format";
-import { baggageLabel, defaultMonth, formatDuration, formatMonth, stopsLabel, upcomingMonths } from "../../lib/flights";
+import { arrivalTimeLabel, baggageLabel, defaultMonth, formatDuration, formatMonth, stopsLabel, upcomingMonths } from "../../lib/flights";
 
 // Ce que dit Aviasales sur ce tarif : "2 valises de 23 kg · cabine incluse · modifiable · non remboursable"
 function fareLabel(fare) {
@@ -115,10 +115,11 @@ function OfferRow({ offer, onEdit, onToggleHidden }) {
           <div className="min-w-0">
             <div className="font-bold text-sm">
               {formatTripDate(offer.departureAt)} · {formatTripTime(offer.departureAt)}
+              {offer.arrivalAt && ` → ${arrivalTimeLabel(offer.departureAt, offer.arrivalAt)}`}
             </div>
             <div className="text-xs text-muted">
               {offer.airlineName} {offer.airline} {offer.flightNumber} · {offer.originAirport ?? offer.origin.code} →{" "}
-              {offer.destinationAirport ?? offer.destination.code} · {stopsLabel(offer.transfers)}
+              {offer.destinationAirport ?? offer.destination.code} · {stopsLabel(offer.transfers, offer.stops)}
               {offer.durationMinutes ? ` · ${formatDuration(offer.durationMinutes)}` : ""}
               {offer.gate && ` · prix trouvé chez ${offer.gate}`}
             </div>

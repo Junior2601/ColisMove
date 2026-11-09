@@ -513,9 +513,11 @@ CREATE TABLE IF NOT EXISTS flight_offers (
   destination_airport  VARCHAR(3),
   departure_at         TIMESTAMP   NOT NULL,     -- heure locale de départ, comme sur le billet
   departure_utc        TIMESTAMPTZ NOT NULL,     -- instant exact (départ passé ou trop proche)
+  arrival_at           TIMESTAMP,                -- heure locale d'arrivée (lien Aviasales ; NULL = non précisée)
   airline              VARCHAR(3)  NOT NULL,     -- code IATA de la compagnie (TK, SU, AF…)
   flight_number        VARCHAR(10) NOT NULL,
   transfers            SMALLINT    NOT NULL DEFAULT 0,
+  stop_airports        VARCHAR(60),              -- aéroports d'escale : "DOH" ou "IST SAW NCE" (NULL = direct ou inconnu)
   duration_minutes     INT,
   source_price         NUMERIC(12,2) NOT NULL,   -- prix Aviasales
   source_currency      VARCHAR(3)  NOT NULL,
@@ -576,10 +578,12 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   origin_airport       VARCHAR(3),
   destination_airport  VARCHAR(3),
   departure_at         TIMESTAMP    NOT NULL,
+  arrival_at           TIMESTAMP,                      -- heure locale d'arrivée (NULL = non précisée)
   airline              VARCHAR(3)   NOT NULL,
   airline_name         VARCHAR(80),
   flight_number        VARCHAR(10)  NOT NULL,
   transfers            SMALLINT     NOT NULL DEFAULT 0,
+  stops                JSONB        NOT NULL DEFAULT '[]', -- [{ code, name, airports }] villes d'escale
   duration_minutes     INT,
   checked_bags         SMALLINT     NOT NULL DEFAULT 0,
   cabin_kg             SMALLINT     DEFAULT 0,         -- NULL : bagage cabine inclus, poids non précisé

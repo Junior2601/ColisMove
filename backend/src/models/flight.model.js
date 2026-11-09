@@ -172,9 +172,11 @@ export function toOffer(row) {
     destinationAirport: row.destination_airport,
     departureAt: toLocalIso(row.departure_at),
     departureUtc: row.departure_utc,
+    arrivalAt: row.arrival_at ? toLocalIso(row.arrival_at) : null, // heure locale d'arrivée
     airline: row.airline,
     flightNumber: row.flight_number,
     transfers: row.transfers,
+    stopAirports: row.stop_airports ? row.stop_airports.split(" ") : [], // ["IST", "SAW", "NCE"]
     durationMinutes: row.duration_minutes,
     sourcePrice: row.source_price,
     sourceCurrency: row.source_currency,
@@ -216,9 +218,11 @@ export async function upsertOffers(offers, db = pool) {
     destination_airport: o.destinationAirport,
     departure_at: o.departureAt,
     departure_utc: o.departureUtc.toISOString(),
+    arrival_at: o.arrivalAt ?? null,
     airline: o.airline,
     flight_number: o.flightNumber,
     transfers: o.transfers,
+    stop_airports: o.stopAirports?.length ? o.stopAirports.join(" ").slice(0, 60) : null,
     duration_minutes: o.durationMinutes,
     source_price: o.sourcePrice,
     source_currency: o.sourceCurrency,
@@ -232,21 +236,26 @@ export async function upsertOffers(offers, db = pool) {
   }));
   const { rowCount } = await db.query(
     `INSERT INTO flight_offers (origin, destination, origin_airport, destination_airport, departure_at, departure_utc,
-                                airline, flight_number, transfers, duration_minutes, source_price, source_currency, link, gate,
+                                arrival_at, airline, flight_number, transfers, stop_airports, duration_minutes,
+                                source_price, source_currency, link, gate,
                                 fare_checked_bags, fare_bag_kg, fare_cabin_bag, fare_changeable, fare_refundable)
      SELECT origin, destination, origin_airport, destination_airport, departure_at, departure_utc,
-            airline, flight_number, transfers, duration_minutes, source_price, source_currency, link, gate,
+            arrival_at, airline, flight_number, transfers, stop_airports, duration_minutes,
+            source_price, source_currency, link, gate,
             fare_checked_bags, fare_bag_kg, fare_cabin_bag, fare_changeable, fare_refundable
      FROM jsonb_to_recordset($1::jsonb) AS x(
        origin text, destination text, origin_airport text, destination_airport text, departure_at timestamp,
-       departure_utc timestamptz, airline text, flight_number text, transfers smallint, duration_minutes int,
+       departure_utc timestamptz, arrival_at timestamp, airline text, flight_number text, transfers smallint,
+       stop_airports text, duration_minutes int,
        source_price numeric, source_currency text, link text, gate text,
        fare_checked_bags smallint, fare_bag_kg smallint, fare_cabin_bag boolean, fare_changeable boolean, fare_refundable boolean)
      ON CONFLICT (origin, destination, departure_at, airline, flight_number) DO UPDATE SET
        origin_airport = EXCLUDED.origin_airport,
        destination_airport = EXCLUDED.destination_airport,
        departure_utc = EXCLUDED.departure_utc,
+       arrival_at = EXCLUDED.arrival_at,
        transfers = EXCLUDED.transfers,
+       stop_airports = EXCLUDED.stop_airports,
        duration_minutes = EXCLUDED.duration_minutes,
        source_price = EXCLUDED.source_price,
        source_currency = EXCLUDED.source_currency,

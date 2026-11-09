@@ -10,7 +10,7 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useFlash } from "../../hooks/useFlash";
 import { useSocketEvent } from "../../hooks/useSocketEvent";
 import { formatDateTime, formatKg, formatMoney, formatPhone, formatTripDate, formatTripTime, timeAgo } from "../../lib/format";
-import { orderBaggageLabel, passengersLabel, removedBagsLabel, stopsLabel } from "../../lib/flights";
+import { arrivalTimeLabel, orderBaggageLabel, passengersLabel, removedBagsLabel, stopsLabel } from "../../lib/flights";
 import { paths } from "../../lib/hashid";
 import { CANCELLABLE_FLIGHT_ORDER_STATUSES, FLIGHT_ORDER_STATUS, NEXT_FLIGHT_ORDER_STEP } from "../../lib/status";
 
@@ -35,6 +35,7 @@ function OrderCard({ order, onAction }) {
           <div className="font-extrabold text-[15px]">
             {flight.origin.name} → {flight.destination.name} · {formatTripDate(flight.departureAt)} ·{" "}
             {formatTripTime(flight.departureAt)}
+            {flight.arrivalAt && ` → ${arrivalTimeLabel(flight.departureAt, flight.arrivalAt)}`}
           </div>
           <div className="text-xs text-muted">
             <span className="font-mono font-bold text-ink">{order.reference}</span> · demande {timeAgo(order.createdAt)}
@@ -50,7 +51,7 @@ function OrderCard({ order, onAction }) {
           {order.clientEmail && ` · ${order.clientEmail}`}
         </div>
         <div>
-          {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers)} · {orderBaggageLabel(order)}
+          {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers, flight.stops)} · {orderBaggageLabel(order)}
           {order.gate && ` · prix trouvé chez ${order.gate}`}
         </div>
         {order.bags.freedKilos > 0 && (

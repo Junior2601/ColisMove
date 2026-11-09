@@ -175,7 +175,7 @@ export function baggageOf(offer, settings) {
 }
 
 // Billet tel que le client le voit (prix calculés, bagages, noms des villes et de la compagnie)
-function toPublicOffer(offer, settings, { cities, airlines }) {
+function toPublicOffer(offer, settings, { cities, airlines, stops }) {
   return {
     id: offer.id,
     origin: cities.get(offer.origin) ?? { code: offer.origin, name: offer.origin },
@@ -183,10 +183,12 @@ function toPublicOffer(offer, settings, { cities, airlines }) {
     originAirport: offer.originAirport,
     destinationAirport: offer.destinationAirport,
     departureAt: offer.departureAt,
+    arrivalAt: offer.arrivalAt, // heure locale d'arrivée (null = non précisée par Aviasales)
     airline: offer.airline,
     airlineName: airlines.get(offer.airline) ?? offer.airline,
     flightNumber: offer.flightNumber,
     transfers: offer.transfers,
+    stops: stops.get(offer.stopAirports.join(" ")) ?? [], // [{ code, name, airports }] villes d'escale
     durationMinutes: offer.durationMinutes,
     ...baggageOf(offer, settings), // checkedBags (par passager, hors bébés), checkedBagKg, cabinKg, baggageSource
     bagRefund: settings.bagRefund, // réduction par valise retirée (0 = impossible)
@@ -196,13 +198,20 @@ function toPublicOffer(offer, settings, { cities, airlines }) {
   };
 }
 
+// Noms des villes, des compagnies et des villes d'escale (mis en cache par aviasales.service)
 async function lookups(offers) {
   const codes = [...new Set(offers.flatMap((o) => [o.origin, o.destination]))];
-  const [cityList, airlines] = await Promise.all([
+  const routes = [...new Set(offers.map((o) => o.stopAirports?.join(" ")).filter(Boolean))];
+  const [cityList, airlines, stopList] = await Promise.all([
     Promise.all(codes.map((code) => aviasales.cityByCode(code))),
     aviasales.airlineNames([...new Set(offers.map((o) => o.airline).filter(Boolean))]),
+    Promise.all(routes.map((route) => aviasales.stopCities(route.split(" ")))),
   ]);
-  return { cities: new Map(cityList.map((city) => [city.code, city])), airlines };
+  return {
+    cities: new Map(cityList.map((city) => [city.code, city])),
+    airlines,
+    stops: new Map(routes.map((route, i) => [route, stopList[i]])),
+  };
 }
 
 // Règles utiles au navigateur pour afficher l'onglet et calculer le total en direct

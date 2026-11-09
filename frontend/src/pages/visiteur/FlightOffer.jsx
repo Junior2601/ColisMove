@@ -11,7 +11,7 @@ import { useApi } from "../../hooks/useApi";
 import { saveGuestAccess } from "../../lib/guestAccess";
 import { decodeId, paths } from "../../lib/hashid";
 import { formatKg, formatMoney, formatTripDate, formatTripTime, plural } from "../../lib/format";
-import { baggageLabel, computeTotal, formatDuration, includedBags, stopsLabel } from "../../lib/flights";
+import { baggageLabel, computeTotal, formatDuration, includedBags, stopsDetail } from "../../lib/flights";
 
 // Ligne clé/valeur du récapitulatif
 function Row({ k, v }) {
@@ -206,7 +206,10 @@ export default function FlightOffer() {
             <Row k="Départ" v={`${offer.origin.name}${offer.originAirport ? ` · ${offer.originAirport}` : ""}`} />
             <Row k="Date · heure de départ" v={`${formatTripDate(offer.departureAt)} · ${formatTripTime(offer.departureAt)}`} />
             <Row k="Arrivée" v={`${offer.destination.name}${offer.destinationAirport ? ` · ${offer.destinationAirport}` : ""}`} />
-            <Row k="Escales" v={stopsLabel(offer.transfers)} />
+            {offer.arrivalAt && (
+              <Row k="Date · heure d'arrivée" v={`${formatTripDate(offer.arrivalAt)} · ${formatTripTime(offer.arrivalAt)}`} />
+            )}
+            <Row k={offer.transfers > 1 ? "Escales" : "Escale"} v={stopsDetail(offer.transfers, offer.stops)} />
             {offer.durationMinutes && <Row k="Durée totale" v={formatDuration(offer.durationMinutes)} />}
             <Row k="Bagages inclus" v={baggageLabel(offer)} />
             <Row k="Prix enfant (2-11 ans)" v={money(offer.childPrice)} />

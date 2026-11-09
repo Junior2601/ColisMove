@@ -138,9 +138,79 @@ export function parseFareKey(key) {
   return fare;
 }
 
+function linkParam(link, name) {
+  if (typeof link !== "string" || !link.startsWith("/")) return null;
+  return new URL(link, AVIASALES_SITE).searchParams.get(name);
+}
+
 function fareOf(link) {
-  if (typeof link !== "string" || !link.startsWith("/")) return parseFareKey(null);
-  return parseFareKey(new URL(link, AVIASALES_SITE).searchParams.get("static_fare_key"));
+  return parseFareKey(linkParam(link, "static_fare_key"));
+}
+
+/* ---------- Horaires et escales ---------- */
+
+// "2026-12-19T14:55" : heure locale d'un horodatage Aviasales (heure locale codée comme si c'était UTC)
+const localIsoOf = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 16);
+
+/**
+ * Arrivée et escales d'un billet, codées par Aviasales dans le paramètre t de son lien, ex.
+ *   "QR17975853001797692100001600ABJDOHSVO_…" → compagnie QR · départ 1797585300 · arrivée 1797692100
+ *   · durée 1600 min · aéroports ABJ → DOH → SVO
+ * Les horodatages sont les heures LOCALES (de départ, d'arrivée) écrites comme de l'UTC : vérifié sur les vols
+ * vers l'est et vers l'ouest (arrivée − départ = durée ± décalage horaire). Format non documenté : le départ
+ * doit correspondre à celui annoncé par l'API, sinon rien n'est déduit.
+ * Aéroports : départ, aéroports intermédiaires (deux à la suite dans la même ville = changement d'aéroport), arrivée.
+ */
+export function parseItinerary(t, departureAt) {
+  const none = { arrivalAt: null, stopAirports: [] };
+  const match = /^[A-Z0-9]{2}(\d{10})(\d{10})(\d{6})((?:[A-Z]{3}){2,})_/.exec(String(t ?? ""));
+  if (!match) return none;
+  const [, departure, arrival, , airports] = match;
+  if (localIsoOf(Number(departure)) !== departureAt) return none;
+  const hours = (Number(arrival) - Number(departure)) / 3600;
+  return {
+    arrivalAt: hours > 0 && hours < 96 ? localIsoOf(Number(arrival)) : null,
+    stopAirports: airports.match(/.{3}/g).slice(1, -1),
+  };
+}
+
+const airportsCache = memoryCache(7 * DAY_MS, 2000);
+
+/** "SAW" → { code: "IST", name: "Istanbul" } (ville de l'aéroport) ; le code lui-même si inconnu */
+async function airportCity(code) {
+  const cached = airportsCache.get(code);
+  if (cached) return cached;
+  try {
+    const params = new URLSearchParams({ term: code, locale: "fr" });
+    params.append("types[]", "airport");
+    params.append("types[]", "city"); // aéroport unique d'une ville (DOH, CMN…) : renvoyé comme une ville
+    const rows = await getJson(`${PLACES_URL}?${params}`);
+    const list = Array.isArray(rows) ? rows : [];
+    const airport = list.find((row) => row.type === "airport" && row.code === code && row.city_name);
+    const city = list.find((row) => row.type === "city" && row.code === code && row.name);
+    const found = airport
+      ? { code: airport.city_code ?? code, name: airport.city_name }
+      : city && { code, name: city.name };
+    if (found) return airportsCache.set(code, found);
+  } catch (err) {
+    console.error("[aviasales] aéroport", code, err.message);
+  }
+  return { code, name: null }; // non mis en cache : nouvel essai à la prochaine recherche
+}
+
+/**
+ * ["IST", "SAW", "NCE"] → [{ code: "IST", name: "Istanbul", airports: ["IST", "SAW"] }, { code: "NCE", name: "Nice", airports: ["NCE"] }]
+ * Deux aéroports de la même ville à la suite = une seule escale (avec changement d'aéroport).
+ */
+export async function stopCities(airports) {
+  const cities = await Promise.all(airports.map(airportCity));
+  const stops = [];
+  airports.forEach((airport, i) => {
+    const last = stops[stops.length - 1];
+    if (last && last.code === cities[i].code) last.airports.push(airport);
+    else stops.push({ code: cities[i].code, name: cities[i].name, airports: [airport] });
+  });
+  return stops;
 }
 
 /* ---------- Prix ---------- */
@@ -177,13 +247,16 @@ export async function fetchMonthPrices({ origin, destination, month, currency })
     const departureUtc = new Date(row.departure_at);
     const price = Number(row.price);
     if (!row.airline || Number.isNaN(departureUtc.getTime()) || !(price > 0)) continue;
+    const departureAt = String(row.departure_at).slice(0, 16);
+    const link = typeof row.link === "string" ? row.link : null;
     offers.push({
       origin,
       destination,
       originAirport: row.origin_airport ?? null,
       destinationAirport: row.destination_airport ?? null,
-      departureAt: String(row.departure_at).slice(0, 16),
+      departureAt,
       departureUtc,
+      ...parseItinerary(linkParam(link, "t"), departureAt), // arrivalAt (heure locale), stopAirports
       airline: String(row.airline).slice(0, 3),
       flightNumber: String(row.flight_number ?? "").slice(0, 10) || "—",
       transfers: Number(row.transfers) || 0,
@@ -191,7 +264,7 @@ export async function fetchMonthPrices({ origin, destination, month, currency })
       durationMinutes: Number(row.duration ?? row.duration_to) || null,
       sourcePrice: price,
       sourceCurrency,
-      link: typeof row.link === "string" ? row.link : null,
+      link,
       gate: typeof row.gate === "string" ? row.gate.slice(0, 80) : null, // agence qui vend ce prix
       fare: fareOf(row.link), // bagages et conditions de ce tarif
     });

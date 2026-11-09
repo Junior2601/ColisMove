@@ -6,7 +6,7 @@ import { adminApi } from "../../api/admin";
 import { useApi } from "../../hooks/useApi";
 import { useSocketEvent } from "../../hooks/useSocketEvent";
 import { formatKg, formatMoney, formatTripDate, formatTripTime } from "../../lib/format";
-import { removedBagsLabel, stopsLabel } from "../../lib/flights";
+import { arrivalTimeLabel, formatDuration, removedBagsLabel, stopsLabel } from "../../lib/flights";
 import { encodeId, paths } from "../../lib/hashid";
 import { FLIGHT_ORDER_STATUS } from "../../lib/status";
 
@@ -45,9 +45,14 @@ function KilosCard({ item }) {
           <div className="font-extrabold text-[15px]">
             {flight.origin.name} → {flight.destination.name} · {formatTripDate(flight.departureAt)} ·{" "}
             {formatTripTime(flight.departureAt)}
+            {flight.arrivalAt && ` → ${arrivalTimeLabel(flight.departureAt, flight.arrivalAt)}`}
           </div>
           <div className="text-xs text-muted">
-            {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers)}
+            {[
+              `${flight.airlineName ?? ""} ${flight.airline} ${flight.flightNumber}`.trim(),
+              stopsLabel(flight.transfers, flight.stops),
+              flight.durationMinutes && `${formatDuration(flight.durationMinutes)} de trajet`,
+            ].filter(Boolean).join(" · ")}
           </div>
         </div>
         <Badge tone={state.tone}>{state.label}</Badge>

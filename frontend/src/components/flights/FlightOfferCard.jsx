@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight, Info, Luggage, Plane } from "lucide-react";
 import { formatMoney, formatTripDate, formatTripTime } from "../../lib/format";
-import { airlineLogoUrl, baggageLabel, formatDuration, stopsLabel } from "../../lib/flights";
+import { airlineLogoUrl, arrivalDayShift, baggageLabel, formatDuration, stopsShortLabel } from "../../lib/flights";
 import { paths } from "../../lib/hashid";
 
 // Logo de la compagnie ; à défaut (logo introuvable), son code dans une pastille
@@ -18,29 +18,49 @@ export function AirlineLogo({ code, name, className = "h-6" }) {
   return <img src={airlineLogoUrl(code)} alt={name} className={`${className} w-auto max-w-28 object-contain`} onError={() => setFailed(true)} />;
 }
 
-// Départ ✈ arrivée (codes aéroport + villes), escales et durée sous la ligne.
-// Aviasales ne donne que l'heure de départ et la durée : pas d'heure d'arrivée affichée.
+// Une extrémité du vol : heure locale (ou code de l'aéroport si l'heure d'arrivée n'est pas connue), aéroport, ville
+function FlightEnd({ time, shift = 0, airport, city }) {
+  return (
+    <div className="text-center min-w-16 max-w-24">
+      <div className="font-extrabold text-[17px] whitespace-nowrap">
+        {time ?? airport}
+        {shift > 0 && <sup className="text-[10px] text-primary font-bold ml-0.5">+{shift} j</sup>}
+      </div>
+      <div className="text-xs text-muted font-semibold truncate">{time ? `${airport} · ${city}` : city}</div>
+    </div>
+  );
+}
+
+// Départ ✈ arrivée (heures locales, aéroports, villes), villes d'escale et durée totale sous la ligne
 export function FlightLine({ offer }) {
+  const withTimes = Boolean(offer.arrivalAt); // heure d'arrivée donnée par Aviasales
+  const stops = stopsShortLabel(offer.transfers, offer.stops);
   return (
     <div className="flex items-center gap-2">
-      <div className="text-center min-w-16 max-w-24">
-        <div className="font-extrabold text-[17px]">{offer.originAirport ?? offer.origin.code}</div>
-        <div className="text-xs text-muted font-semibold truncate">{offer.origin.name}</div>
-      </div>
-      <div className="relative flex-1 h-9">
+      <FlightEnd
+        time={withTimes ? offer.departureAt.slice(11, 16) : null}
+        airport={offer.originAirport ?? offer.origin.code}
+        city={offer.origin.name}
+      />
+      <div className="relative flex-1 h-12 min-w-0">
         <div className="absolute top-1/2 inset-x-0 border-t-2 border-dashed border-line" />
         <Plane
           size={17}
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 fill-primary text-primary bg-white px-0.5 box-content"
         />
-        <span className="absolute top-[calc(50%+9px)] left-1/2 -translate-x-1/2 text-[10.5px] text-muted whitespace-nowrap font-semibold">
-          {[stopsLabel(offer.transfers), formatDuration(offer.durationMinutes)].filter(Boolean).join(" · ")}
+        <span className="absolute top-0 inset-x-0 text-center text-[10.5px] text-muted font-semibold truncate" title={stops}>
+          {stops}
+        </span>
+        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[10.5px] text-muted whitespace-nowrap font-semibold">
+          {formatDuration(offer.durationMinutes)}
         </span>
       </div>
-      <div className="text-center min-w-16 max-w-24">
-        <div className="font-extrabold text-[17px]">{offer.destinationAirport ?? offer.destination.code}</div>
-        <div className="text-xs text-muted font-semibold truncate">{offer.destination.name}</div>
-      </div>
+      <FlightEnd
+        time={withTimes ? offer.arrivalAt.slice(11, 16) : null}
+        shift={withTimes ? arrivalDayShift(offer.departureAt, offer.arrivalAt) : 0}
+        airport={offer.destinationAirport ?? offer.destination.code}
+        city={offer.destination.name}
+      />
     </div>
   );
 }

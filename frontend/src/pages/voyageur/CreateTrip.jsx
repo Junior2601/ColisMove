@@ -9,7 +9,7 @@ import { voyageurApi } from "../../api/voyageur";
 import { errorMessage, fieldErrors } from "../../api/client";
 import { useApi } from "../../hooks/useApi";
 import { formatKg, formatMoney, formatTripDate, joinLocal, routeLabel } from "../../lib/format";
-import { formatDuration, removedBagsLabel } from "../../lib/flights";
+import { formatDuration, removedBagsLabel, stopCitiesText } from "../../lib/flights";
 import { decodeId } from "../../lib/hashid";
 
 // Devises proposées (le backend accepte tout code ISO à 3 lettres)
@@ -24,12 +24,13 @@ const initial = {
 };
 
 /**
- * Formulaire pré-rempli avec les kilos libérés sur un billet vendu (valises retirées par le client).
- * L'API Aviasales ne donne ni l'heure d'arrivée ni la ville d'escale : seule la date d'arrivée est estimée
- * (départ + durée du vol, sans le décalage horaire), l'admin complète avec le billet.
+ * Formulaire pré-rempli avec les kilos libérés sur un billet vendu (valises retirées par le client) :
+ * départ, arrivée (heure locale donnée par Aviasales) et villes d'escale. Aviasales ne donne pas le temps
+ * d'escale : l'admin le recopie depuis le billet. Demande ancienne sans heure d'arrivée : date estimée
+ * (départ + durée du vol, sans le décalage horaire), heure à compléter.
  */
 function formFromFreedKilos({ flight, bags, currency }) {
-  const arrival = flight.durationMinutes
+  const estimatedDate = flight.durationMinutes
     ? new Date(new Date(`${flight.departureAt}:00Z`).getTime() + flight.durationMinutes * 60000).toISOString().slice(0, 10)
     : "";
   return {
@@ -38,8 +39,10 @@ function formFromFreedKilos({ flight, bags, currency }) {
     departureDate: flight.departureAt.slice(0, 10),
     departureTime: flight.departureAt.slice(11, 16),
     arrivalCity: flight.destination.name,
-    arrivalDate: arrival,
+    arrivalDate: flight.arrivalAt ? flight.arrivalAt.slice(0, 10) : estimatedDate,
+    arrivalTime: flight.arrivalAt ? flight.arrivalAt.slice(11, 16) : "",
     hasStop: flight.transfers > 0,
+    stopCity: stopCitiesText(flight.stops).slice(0, 80),
     kilosTotal: String(bags.freedKilos),
     currency: CURRENCIES.includes(currency) ? currency : initial.currency,
   };
@@ -201,10 +204,15 @@ export default function CreateTrip() {
           <Notice>
             <b>Kilos libérés sur le billet {source.reference}</b> ({source.clientName},{" "}
             {source.flight.airlineName} {source.flight.airline} {source.flight.flightNumber}) :{" "}
-            {removedBagsLabel(source.bags.removed)}, soit <b>{formatKg(source.bags.freedKilos)}</b>. Complétez avec le
-            billet l&apos;heure d&apos;arrivée (heure locale)
-            {source.flight.durationMinutes ? `, vol de ${formatDuration(source.flight.durationMinutes)}` : ""}
-            {source.flight.transfers > 0 ? " et l'escale" : ""}, puis fixez le prix par kilo.
+            {removedBagsLabel(source.bags.removed)}, soit <b>{formatKg(source.bags.freedKilos)}</b>. Le vol est
+            pré-rempli
+            {source.flight.durationMinutes ? ` (${formatDuration(source.flight.durationMinutes)} de trajet au total)` : ""}.{" "}
+            {!source.flight.arrivalAt && "Complétez l'heure d'arrivée (heure locale) avec le billet. "}
+            {source.flight.transfers > 0 &&
+              (source.flight.transfers > 1
+                ? "Indiquez le temps d'escale total, écrit sur le billet (Aviasales ne le donne pas). "
+                : "Indiquez le temps d'escale, écrit sur le billet (Aviasales ne le donne pas). ")}
+            Fixez ensuite le prix par kilo.
           </Notice>
         )}
 
