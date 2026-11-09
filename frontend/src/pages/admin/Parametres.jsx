@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, MessageSquare } from "lucide-react";
 import Layout from "../../components/Layout";
+import MailSettings from "../../components/admin/MailSettings";
 import { ErrorState, Field, Loader, Notice, btnPrimary, inputClass } from "../../components/ui";
 import { adminApi } from "../../api/admin";
 import { errorMessage } from "../../api/client";
@@ -189,6 +190,8 @@ export default function Parametres() {
           réservation — sur <b>vos voyages comme sur ceux des voyageurs</b>. Le propriétaire du voyage le
           reçoit et confirme la réservation directement dans la messagerie.
         </Notice>
+
+        <MailSettings />
       </div>
     </Layout>
   );

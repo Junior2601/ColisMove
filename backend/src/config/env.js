@@ -25,11 +25,17 @@ export const env = {
   // Adresse publique du site (liens dans les e-mails)
   appUrl: (process.env.APP_URL ?? "http://localhost:5173").replace(/\/$/, ""),
   // Envoi d'e-mails (Brevo, Resend, e-mail Hostinger…) ; sans SMTP_HOST, les e-mails s'affichent dans la console
-  mailFrom: process.env.MAIL_FROM ?? "MoveColis <no-reply@movecolis.com>",
+  // Sans MAIL_FROM : l'adresse de la boîte SMTP (Hostinger refuse d'envoyer au nom d'une autre adresse)
+  mailFrom:
+    process.env.MAIL_FROM ||
+    (/^[^@\s]+@[^@\s]+$/.test(process.env.SMTP_USER ?? "") ? `MoveColis <${process.env.SMTP_USER}>` : "MoveColis <no-reply@movecolis.com>"),
+  // Adresse qui reçoit les réponses des clients (facultatif ; sinon les réponses vont à MAIL_FROM)
+  mailReplyTo: process.env.MAIL_REPLY_TO || null,
   smtp: {
     host: process.env.SMTP_HOST || null,
     port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === "true", // true pour le port 465
+    // Connexion chiffrée dès le départ : port 465 (Hostinger). Non précisé → déduit du port
+    secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === "true" : Number(process.env.SMTP_PORT) === 465,
     user: process.env.SMTP_USER || null,
     pass: process.env.SMTP_PASS || null,
   },

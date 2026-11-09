@@ -45,3 +45,10 @@ export const updateSettingsBody = z
     reservationMessageTemplate: z.string().trim().min(10).max(1000).optional(),
   })
   .refine((data) => Object.keys(data).length > 0, "Aucun champ à modifier.");
+
+/* ---------- E-mails ---------- */
+
+// E-mail de test : à l'adresse de l'admin connecté si aucune n'est donnée
+export const sendTestMailBody = z.object({
+  to: z.preprocess(emptyToNull, z.string().trim().toLowerCase().email("Adresse e-mail invalide.").max(160).nullable()).optional(),
+});

@@ -33,6 +33,9 @@ export const adminApi = {
   // Paramètres
   getSettings: () => api.get("/admin/settings"),
   updateSettings: (data) => api.patch("/admin/settings", data),
+  // E-mails : état du SMTP et e-mail de test (to : null = adresse de l'admin connecté)
+  getMailStatus: () => api.get("/admin/mail"),
+  sendTestMail: (to) => api.post("/admin/mail/test", { to }),
 
   // Billets d'avion : demandes, billets Aviasales, règles de prix et options
   listFlightOrders: (params) => api.get("/admin/flight-orders", params),

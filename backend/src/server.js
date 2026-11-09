@@ -4,6 +4,7 @@ import { env } from "./config/env.js";
 import { pool } from "./config/db.js";
 import { initSocket } from "./socket/index.js";
 import { startScheduler, stopScheduler } from "./jobs/scheduler.js";
+import { verifyMailConnection } from "./services/mail.service.js";
 
 // Express et Socket.io partagent le même serveur HTTP (même port)
 const server = http.createServer(app);
@@ -14,6 +15,7 @@ async function start() {
   server.listen(env.port, () => {
     console.log(`🚀 API MoveColis sur http://localhost:${env.port}/api (+ Socket.io)`);
     startScheduler(); // notifications automatiques (alertes trajets, rappels, campagnes)
+    verifyMailConnection(); // SMTP mal configuré : visible tout de suite dans les journaux (n'empêche pas le démarrage)
   });
 }
 

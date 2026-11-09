@@ -343,7 +343,7 @@ export async function sendTicket(id, { email, note = null, attachments = [] }, {
     });
   } catch (err) {
     console.error("[billets] envoi du billet par e-mail", err);
-    throw new AppError(502, "L'e-mail n'a pas pu être envoyé. Vérifiez l'adresse puis réessayez.");
+    throw new AppError(502, `Le billet n'est pas parti. ${mailService.describeMailError(err)}`);
   }
   await flightOrderModel.markTicketSent(id, email);
 

@@ -1,8 +1,10 @@
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { FileText, Paperclip, Send, X } from "lucide-react";
 import { ErrorState, Field, Modal, Notice, btnOutline, btnPrimary, btnSm, inputClass } from "../ui";
 import { adminApi } from "../../api/admin";
 import { errorMessage, fieldErrors } from "../../api/client";
+import { useApi } from "../../hooks/useApi";
 import { formatDateTime, formatMoney } from "../../lib/format";
 import { passengersLabel } from "../../lib/flights";
 
@@ -39,6 +41,9 @@ export default function SendTicketModal({ order, onClose, onSent }) {
   const [errors, setErrors] = useState({});
   const [error, setError] = useState(null);
   const inputRef = useRef(null);
+  const mail = useApi(() => adminApi.getMailStatus(), []).data; // SMTP absent ou en erreur : prévenu avant de joindre le billet
+  const mailProblem = mail && (!mail.configured ? "L'envoi d'e-mails n'est pas configuré sur le serveur : le billet ne partira pas."
+    : mail.lastCheck?.ok === false ? `Le dernier contrôle des e-mails a échoué : ${mail.lastCheck.error}` : null);
 
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
 
@@ -83,6 +88,12 @@ export default function SendTicketModal({ order, onClose, onSent }) {
         détaillé (vol, passagers, bagages, prix payé).
         {!resend && " La demande passe à « Billet émis »."}
       </p>
+      {mailProblem && (
+        <Notice tone="danger">
+          {mailProblem}{" "}
+          <Link to="/admin/parametres" className="font-bold underline">Vérifier dans les paramètres</Link>
+        </Notice>
+      )}
       {resend && order.receiptSentAt && (
         <Notice>
           Déjà envoyé à <b>{order.receiptEmail}</b> le {formatDateTime(order.receiptSentAt)}.

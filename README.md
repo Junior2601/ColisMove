@@ -44,6 +44,7 @@ movecolis/
    ```
 5. **Secrets du VPS** (en tant que deploy, dans `/opt/movecolis`) : `.env` et `.env.api` d'après les modèles, puis `chmod 600 .env .env.api`.
    Billets d'avion : ajoutez `TRAVELPAYOUTS_TOKEN` (jeton API gratuit sur travelpayouts.com, programme Aviasales) et, si vous l'avez, `TRAVELPAYOUTS_MARKER` dans `.env.api`. La vente s'active ensuite dans *Admin → Billets d'avion → Réglages*. Le SMTP (`SMTP_HOST`…) est indispensable : les billets partent aux clients par e-mail.
+   **E-mails** (boîte Hostinger `serviceclient@movecolis.com`, SPF/DKIM/DMARC actifs dans hPanel) : `cd /opt/movecolis && ./configure-mail.sh` demande le mot de passe de la boîte (sans l'afficher), l'enregistre dans `.env.api`, redémarre l'API et vérifie la connexion. À relancer si ce mot de passe change. Test final : *Admin → Paramètres → E-mails → Envoyer le test*. ⚠️ La boîte doit rester payée : sans elle, plus aucun e-mail (ni billet) ne part.
 6. **GitHub** → *Settings* : environnement `production` ; secrets `VPS_HOST`, `VPS_USER` (= deploy), `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS` ; variable `DOMAIN`.
 7. **Push sur main** → *Actions*. La base vide reçoit le schéma complet automatiquement.
 8. **Compte admin** (une fois) : `ssh deploy@IP "cd /opt/movecolis && docker compose run --rm api npm run db:seed"`.

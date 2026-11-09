@@ -25,6 +25,7 @@ import {
   listTravelersQuery,
   listTripsQuery,
   updateReservationStatusBody,
+  sendTestMailBody,
   updateSettingsBody,
   updateTravelerStatusBody,
   updateTripBody,
@@ -73,6 +74,8 @@ router.get("/marketing/stats", marketing.stats);
 // Parametres.jsx
 router.get("/settings", admin.getSettings);
 router.patch("/settings", validate({ body: updateSettingsBody }), admin.updateSettings);
+router.get("/mail", admin.getMailStatus);
+router.post("/mail/test", validate({ body: sendTestMailBody }), admin.sendTestMail);
 
 // AdminBillets.jsx : demandes de billets, billets Aviasales modifiables, règles de prix et options
 router.get("/flight-orders", validate({ query: listFlightOrdersQuery }), flight.listOrders);

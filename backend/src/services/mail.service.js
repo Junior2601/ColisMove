@@ -11,6 +11,10 @@ const transporter = env.smtp.host
       port: env.smtp.port,
       secure: env.smtp.secure,
       auth: env.smtp.user ? { user: env.smtp.user, pass: env.smtp.pass } : undefined,
+      // Serveur injoignable : erreur en 15 s plutôt que 2 min d'attente (60 s pour envoyer un billet lourd)
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 60_000,
     })
   : null;
 
@@ -19,6 +23,60 @@ if (!transporter) {
 }
 
 export const isMailConfigured = () => transporter !== null;
+
+/**
+ * Explication en français d'une erreur SMTP, pour l'admin (jamais le mot de passe : nodemailer ne l'inclut pas).
+ * Codes nodemailer : EAUTH, ECONNECTION, ETIMEDOUT, ESOCKET, EDNS, EENVELOPE… + code de réponse du serveur (535, 550…)
+ */
+export function describeMailError(err) {
+  const reply = err?.response ? ` (réponse du serveur : ${String(err.response).slice(0, 160)})` : "";
+  const code = err?.responseCode;
+  if (err?.code === "EAUTH" || code === 535 || code === 534) {
+    return `Identifiant ou mot de passe SMTP refusé : vérifiez SMTP_USER et SMTP_PASS${reply}.`;
+  }
+  if (["ECONNECTION", "ETIMEDOUT", "ESOCKET", "EDNS", "ECONNREFUSED"].includes(err?.code)) {
+    return `Serveur d'e-mails injoignable (${env.smtp.host}:${env.smtp.port}) : vérifiez SMTP_HOST, SMTP_PORT et SMTP_SECURE (true seulement pour le port 465).`;
+  }
+  if (err?.code === "ETLS") return "Connexion chiffrée impossible : SMTP_SECURE=true pour le port 465, false pour le port 587.";
+  if (code === 552 || /size|too large|trop volumineux/i.test(err?.response ?? "")) {
+    return `Message trop volumineux pour le fournisseur d'e-mails : envoyez des fichiers plus légers${reply}.`;
+  }
+  if (err?.command === "MAIL FROM") {
+    return `Adresse d'expéditeur refusée : MAIL_FROM doit être une adresse ou un domaine validé chez le fournisseur d'e-mails${reply}.`;
+  }
+  if (err?.command === "RCPT TO" || err?.code === "EENVELOPE") return `Adresse du destinataire refusée${reply}.`;
+  return `Envoi refusé par le serveur d'e-mails${reply || ` (${err?.message ?? "erreur inconnue"})`}.`;
+}
+
+/* ---------- État du SMTP, pour l'admin ---------- */
+
+let lastCheck = null; // { ok, error, at } : dernier test de connexion au serveur d'e-mails
+
+/** Teste la connexion et l'identifiant SMTP, sans envoyer d'e-mail. Au démarrage et depuis l'admin. */
+export async function verifyMailConnection() {
+  if (!transporter) return null;
+  try {
+    await transporter.verify();
+    lastCheck = { ok: true, error: null, at: new Date().toISOString() };
+    console.log(`✉️  SMTP prêt : ${env.smtp.host}:${env.smtp.port}, expéditeur ${env.mailFrom}`);
+  } catch (err) {
+    lastCheck = { ok: false, error: describeMailError(err), at: new Date().toISOString() };
+    console.error(`✉️  SMTP en erreur : ${lastCheck.error}`);
+  }
+  return lastCheck;
+}
+
+/** Configuration visible par l'admin (sans identifiant ni mot de passe) */
+export function mailStatus() {
+  return {
+    configured: transporter !== null,
+    host: env.smtp.host,
+    port: env.smtp.host ? env.smtp.port : null,
+    from: env.mailFrom,
+    replyTo: env.mailReplyTo,
+    lastCheck,
+  };
+}
 
 const escapeHtml = (text) =>
   String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -68,8 +126,46 @@ export async function sendMail({ to, subject, text, html, attachments = [] }) {
     }
     return false;
   }
-  await transporter.sendMail({ from: env.mailFrom, to, subject, text, html, attachments });
+  await transporter.sendMail({ from: env.mailFrom, replyTo: env.mailReplyTo ?? undefined, to, subject, text, html, attachments });
   return true;
+}
+
+/**
+ * E-mail de test envoyé depuis l'admin : vérifie la configuration de bout en bout (et la boîte de réception).
+ * Renvoie true s'il est parti (false : SMTP absent, e-mail affiché dans la console en développement).
+ */
+export async function sendTestMail(to) {
+  const date = new Date().toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short", timeZone: "Africa/Abidjan" });
+  try {
+    const sent = await composeTestMail(to, date);
+    if (sent) lastCheck = { ok: true, error: null, at: new Date().toISOString() };
+    return sent;
+  } catch (err) {
+    lastCheck = { ok: false, error: describeMailError(err), at: new Date().toISOString() };
+    throw err;
+  }
+}
+
+function composeTestMail(to, date) {
+  return sendMail({
+    to,
+    subject: "Test d'envoi MoveColis",
+    text:
+      `Bonjour,\n\nCet e-mail de test confirme que MoveColis peut envoyer des e-mails (${date}, heure d'Abidjan).\n` +
+      `Expéditeur : ${env.mailFrom}\n` +
+      (env.mailReplyTo ? `Les réponses des clients arrivent à : ${env.mailReplyTo}\n` : "") +
+      `\nS'il est arrivé dans les indésirables, marquez-le comme « non indésirable ».\n\nL'équipe MoveColis`,
+    html: layout({
+      preheader: "Les e-mails de MoveColis fonctionnent.",
+      title: "Les e-mails fonctionnent ✅",
+      paragraphs: [
+        `Cet e-mail de test confirme que MoveColis peut envoyer des e-mails : mot de passe oublié, billets d'avion et reçus.`,
+        `Envoyé le <b>${escapeHtml(date)}</b> (heure d'Abidjan) par <b>${escapeHtml(env.mailFrom)}</b>.` +
+          (env.mailReplyTo ? `<br>Les réponses des clients arrivent à <b>${escapeHtml(env.mailReplyTo)}</b>.` : ""),
+      ],
+      footer: "Il est arrivé dans les indésirables (spam) ? Marquez-le comme « non indésirable » et vérifiez l'authentification du domaine chez votre fournisseur d'e-mails.",
+    }),
+  });
 }
 
 /** Lien pour choisir un nouveau mot de passe */

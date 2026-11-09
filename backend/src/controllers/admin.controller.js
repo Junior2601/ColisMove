@@ -3,6 +3,9 @@ import * as tripService from "../services/trip.service.js";
 import * as reservationService from "../services/reservation.service.js";
 import * as travelerService from "../services/traveler.service.js";
 import * as settingsService from "../services/settings.service.js";
+import * as mailService from "../services/mail.service.js";
+import { AppError } from "../utils/AppError.js";
+import { isDev } from "../config/env.js";
 
 // Le contrôleur ne fait que traduire HTTP ↔ service.
 // Express 5 transmet automatiquement les erreurs des fonctions async au errorHandler : pas de try/catch.
@@ -74,4 +77,27 @@ export async function getSettings(req, res) {
 
 export async function updateSettings(req, res) {
   res.json(await settingsService.updateSettings(req.valid.body));
+}
+
+/* ---------- E-mails (SMTP) ---------- */
+
+export async function getMailStatus(req, res) {
+  res.json(mailService.mailStatus());
+}
+
+// Envoie un vrai e-mail : prouve que le SMTP, l'expéditeur et la boîte de réception fonctionnent
+export async function sendTestMail(req, res) {
+  const to = req.valid.body.to ?? req.user.email;
+  if (!to) throw new AppError(400, "Indiquez l'adresse qui doit recevoir l'e-mail de test.");
+  if (!mailService.isMailConfigured() && !isDev) {
+    throw new AppError(503, "Envoi d'e-mails non configuré : renseignez SMTP_HOST, SMTP_USER, SMTP_PASS et MAIL_FROM dans .env.api sur le serveur, puis redémarrez l'API.");
+  }
+  let sent;
+  try {
+    sent = await mailService.sendTestMail(to);
+  } catch (err) {
+    console.error("[mail] e-mail de test", err.message);
+    throw new AppError(502, mailService.describeMailError(err));
+  }
+  res.json({ to, sent, status: mailService.mailStatus() });
 }
