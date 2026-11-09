@@ -10,6 +10,11 @@ import { badRequest, forbidden, notFound } from "../utils/AppError.js";
 
 const plural = (n, word) => `${n} ${word}${n > 1 ? "s" : ""}`;
 
+// Annonces de nouveaux voyages : envoyées à chaque publication, sans plafond (heures calmes respectées)
+const NEW_TRIP_KINDS = ["ROUTE_ALERT", "NEW_TRIP"];
+// Les annonces génériques se regroupent : une seule notification « Nouveaux kilos » non lue à la fois
+const NEW_TRIPS_GROUP = "new-trips";
+
 /* =====================================================================
  *  1. Centres d'intérêt (clients connectés)
  * ===================================================================== */
@@ -96,23 +101,26 @@ function digestMessage({ userId, destination, trips }, dedupeKey) {
 }
 
 /**
- * Nouveau voyage publié → alerte aux clients intéressés par ce trajet :
- *  - recherché, favori ou déjà réservé : « Un voyageur part de Moscou vers Abidjan le 20 »
+ * Nouveau voyage publié → notification à tous les clients (alertes activées) :
+ *  - intéressés par ce trajet (recherché, favori ou déjà réservé) : « Un voyageur part de Moscou vers Abidjan le 20 »
  *  - seulement consulté : « Nouveau voyageur sur Moscou → Abidjan »
- * Envoyée 10 minutes après la publication, si le voyage est toujours réservable.
+ *  - tous les autres : « Nouveaux kilos disponibles : Moscou → Abidjan »
+ * Envoyée 10 minutes après la publication (le voyageur peut corriger une erreur), si le voyage est toujours réservable.
  */
 export async function onTripPublished(tripId) {
   const [trip, users] = await Promise.all([
     tripModel.findPublicById(tripId),
     marketingModel.findInterestedUsersForTrip(tripId, MARKETING.interestRecencyDays),
   ]);
-  if (!trip || !users.length) return 0;
+  if (!trip) return 0;
 
   const route = routeText(trip);
   const date = formatLocalDate(trip.departureAt);
   const offer = `${formatKilos(trip.kilosAvailable)} disponibles à ${formatMoney(trip.pricePerKilo, trip.currency)}/kg`;
+  const sendAfter = new Date(Date.now() + MARKETING.routeAlertDelayMinutes * 60000);
 
-  return marketingModel.enqueue(
+  // D'abord les alertes ciblées, puis l'annonce générale pour tous les autres clients (même clé : pas de doublon)
+  const targeted = await marketingModel.enqueue(
     users.map(({ userId, source }) => ({
       userId,
       kind: "ROUTE_ALERT",
@@ -128,9 +136,16 @@ export async function onTripPublished(tripId) {
       link: paths.trip(trip.id),
       dedupeKey: `trip:${trip.id}`,
       tripId: trip.id,
-      sendAfter: new Date(Date.now() + MARKETING.routeAlertDelayMinutes * 60000),
+      sendAfter,
     }))
   );
+  const everyone = await marketingModel.enqueueNewTripForAllClients(trip.id, {
+    title: `Nouveaux kilos disponibles : ${route} ✈️`,
+    body: `Départ le ${date} · ${offer}.`,
+    link: paths.trip(trip.id),
+    sendAfter,
+  });
+  return targeted + everyone;
 }
 
 /** Version "sans risque" pour la publication d'un voyage : une erreur ici n'empêche jamais la publication */
@@ -211,16 +226,19 @@ async function deliverOne(item) {
     return marketingModel.postpone(item.id, new Date(Date.now() + hoursUntilMorning(hour) * 3600000));
   }
 
-  // Plafonds : semaine pleine → abandon ; journée pleine → demain
-  const { day, week } = await marketingModel.countRecentSent(item.user_id);
-  if (week >= MARKETING.maxPerWeek) return marketingModel.markSkipped(item.id, "weekly_cap");
-  if (day >= MARKETING.maxPerDay) return marketingModel.postpone(item.id, new Date(Date.now() + 24 * 3600000));
+  // Plafonds (sauf annonces de nouveaux voyages) : semaine pleine → abandon ; journée pleine → demain
+  if (!NEW_TRIP_KINDS.includes(item.kind)) {
+    const { day, week } = await marketingModel.countRecentSent(item.user_id);
+    if (week >= MARKETING.maxPerWeek) return marketingModel.markSkipped(item.id, "weekly_cap");
+    if (day >= MARKETING.maxPerDay) return marketingModel.postpone(item.id, new Date(Date.now() + 24 * 3600000));
+  }
 
   const [notification] = await notificationService.notify([item.user_id], {
     type: item.kind,
     title: item.title,
     body: item.body,
     link: item.link,
+    groupKey: item.kind === "NEW_TRIP" ? NEW_TRIPS_GROUP : null,
   });
   await marketingModel.markSent(item.id, notification.id);
 }

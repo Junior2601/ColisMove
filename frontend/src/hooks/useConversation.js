@@ -263,6 +263,12 @@ export function useConversation(conversationId) {
     [id]
   );
 
+  // Demande de billet mise à jour ailleurs que dans la conversation (ex. billet envoyé par e-mail)
+  const patchFlightOrder = useCallback(
+    (patch) => setDetail((d) => (d?.flightOrder ? { ...d, flightOrder: { ...d.flightOrder, ...patch } } : d)),
+    []
+  );
+
   return {
     detail,
     messages,
@@ -277,5 +283,6 @@ export function useConversation(conversationId) {
     loadOlder,
     notifyTyping,
     changeStatus,
+    patchFlightOrder,
   };
 }

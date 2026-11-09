@@ -96,7 +96,7 @@ export const TERMS_VERSION = "2026-10";
 
 // Notifications automatiques (réengagement) : garde-fous pour ne pas lasser les utilisateurs
 export const MARKETING = {
-  maxPerDay: 1, // messages marketing par personne et par jour (au-delà : reporté au lendemain)
+  maxPerDay: 1, // messages marketing par personne et par jour, hors annonces de nouveaux voyages (au-delà : reporté au lendemain)
   maxPerWeek: 3, // … et par semaine (au-delà : abandonné)
   quietStartHour: 21, // heures calmes, à l'heure locale de la personne : rien entre 21 h…
   quietEndHour: 8, // … et 8 h

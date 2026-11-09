@@ -38,6 +38,7 @@ export default function FlightSearch({ config }) {
     destination: params.get("destination"),
     month: params.get("mois"),
     direct: params.get("direct") === "1",
+    bags: params.get("bagages") === "1", // bagage en soute inclus (filtre appliqué ici, sur les résultats)
   };
   const hasQuery = isCode(query.origin) && isCode(query.destination) && /^\d{4}-\d{2}$/.test(query.month ?? "");
 
@@ -47,6 +48,7 @@ export default function FlightSearch({ config }) {
     destination: isCode(query.destination) ? { code: query.destination, name: query.destination } : null,
     month: months.some((m) => m.value === query.month) ? query.month : defaultMonth(),
     direct: query.direct,
+    bags: query.bags,
   }));
   const [errors, setErrors] = useState({});
   const [sort, setSort] = useState("price");
@@ -87,6 +89,7 @@ export default function FlightSearch({ config }) {
       destination: next.destination.code,
       mois: next.month,
       ...(next.direct && { direct: "1" }),
+      ...(next.bags && { bagages: "1" }),
     });
   }
 
@@ -96,9 +99,9 @@ export default function FlightSearch({ config }) {
   };
 
   const sorted = useMemo(() => {
-    const items = results.data?.items ?? [];
+    const items = (results.data?.items ?? []).filter((offer) => !query.bags || offer.checkedBags > 0);
     return [...items].sort(SORTS.find((s) => s.key === sort).compare);
-  }, [results.data, sort]);
+  }, [results.data, sort, query.bags]);
 
   return (
     <>
@@ -148,6 +151,15 @@ export default function FlightSearch({ config }) {
             />
             Vols directs uniquement
           </label>
+          <label className="inline-flex items-center gap-2 text-sm font-semibold cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.bags}
+              onChange={(e) => setForm((f) => ({ ...f, bags: e.target.checked }))}
+              className="w-4 h-4 accent-primary"
+            />
+            Bagage en soute inclus
+          </label>
           <button type="submit" className={`${btnPrimary} sm:min-w-56`}>
             <Search size={17} /> Rechercher des billets
           </button>
@@ -191,6 +203,7 @@ export default function FlightSearch({ config }) {
               <p className="text-[13px] text-muted">
                 {formatMonth(results.data.month)} · {plural(sorted.length, "billet")}
                 {query.direct && " · vols directs"}
+                {query.bags && " · bagage en soute inclus"}
               </p>
             </div>
             {sorted.length > 1 && (
@@ -212,7 +225,8 @@ export default function FlightSearch({ config }) {
 
           {sorted.length === 0 ? (
             <div className="text-center text-muted text-sm py-10">
-              Aucun billet trouvé pour ce mois. Essayez un autre mois{query.direct ? ", acceptez les escales" : ""} ou
+              Aucun billet trouvé pour ce mois. Essayez un autre mois{query.direct ? ", acceptez les escales" : ""}
+              {query.bags ? ", retirez le filtre « Bagage en soute inclus »" : ""} ou
               une ville proche.
               <br />
               Aviasales ne garde que les prix vus récemment par ses utilisateurs : un trajet peu demandé peut ne rien

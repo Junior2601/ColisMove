@@ -37,6 +37,11 @@ export const adminApi = {
   // Billets d'avion : demandes, billets Aviasales, règles de prix et options
   listFlightOrders: (params) => api.get("/admin/flight-orders", params),
   updateFlightOrderStatus: (id, status, note) => api.patch(`/admin/flight-orders/${id}/status`, { status, note }),
+  // Billet + reçu par e-mail (« Payée » → « Billet émis », ou nouvel envoi) : { email, note, attachments: [{ filename, contentType, data }] }
+  sendFlightTicket: (id, data) => api.post(`/admin/flight-orders/${id}/ticket`, data),
+  // Kilos libérés par les valises que les clients ont retirées de leur billet
+  listFreedKilos: (params) => api.get("/admin/flights/kilos", params), // { period: "upcoming" | "past" }
+  getFreedKilos: (id) => api.get(`/admin/flights/kilos/${id}`),
   flightSearches: () => api.get("/admin/flights/searches"),
   listFlightOffers: (params) => api.get("/admin/flights/offers", params), // { origin, destination, month, refresh }
   updateFlightOffer: (id, data) => api.patch(`/admin/flights/offers/${id}`, data),

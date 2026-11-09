@@ -9,14 +9,12 @@ const SETTINGS_COLUMNS = {
   sourceCurrency: "source_currency",
   currency: "currency",
   exchangeRate: "exchange_rate",
-  markupPercent: "markup_percent",
-  serviceFee: "service_fee",
-  roundTo: "round_to",
   childPercent: "child_percent",
   infantPercent: "infant_percent",
   defaultCheckedBags: "default_checked_bags",
   defaultCabinKg: "default_cabin_kg",
   checkedBagKg: "checked_bag_kg",
+  bagRefund: "bag_refund",
   cacheHours: "cache_hours",
   minHoursBeforeDeparture: "min_hours_before_departure",
 };
@@ -183,8 +181,13 @@ export function toOffer(row) {
     link: row.link,
     gate: row.gate,
     fetchedAt: row.fetched_at,
-    // Modifications de l'admin (null = règle générale)
-    priceOverride: row.price_override,
+    // Bagages et conditions du tarif selon Aviasales (null = non précisé)
+    fareCheckedBags: row.fare_checked_bags,
+    fareBagKg: row.fare_bag_kg,
+    fareCabinBag: row.fare_cabin_bag,
+    fareChangeable: row.fare_changeable,
+    fareRefundable: row.fare_refundable,
+    // Modifications de l'admin (null = règle générale) ; le prix reste celui d'Aviasales
     checkedBags: row.checked_bags,
     cabinKg: row.cabin_kg,
     info: row.info,
@@ -221,16 +224,24 @@ export async function upsertOffers(offers, db = pool) {
     source_currency: o.sourceCurrency,
     link: o.link,
     gate: o.gate,
+    fare_checked_bags: o.fare?.checkedBags ?? null,
+    fare_bag_kg: o.fare?.bagKg ?? null,
+    fare_cabin_bag: o.fare?.cabinBag ?? null,
+    fare_changeable: o.fare?.changeable ?? null,
+    fare_refundable: o.fare?.refundable ?? null,
   }));
   const { rowCount } = await db.query(
     `INSERT INTO flight_offers (origin, destination, origin_airport, destination_airport, departure_at, departure_utc,
-                                airline, flight_number, transfers, duration_minutes, source_price, source_currency, link, gate)
+                                airline, flight_number, transfers, duration_minutes, source_price, source_currency, link, gate,
+                                fare_checked_bags, fare_bag_kg, fare_cabin_bag, fare_changeable, fare_refundable)
      SELECT origin, destination, origin_airport, destination_airport, departure_at, departure_utc,
-            airline, flight_number, transfers, duration_minutes, source_price, source_currency, link, gate
+            airline, flight_number, transfers, duration_minutes, source_price, source_currency, link, gate,
+            fare_checked_bags, fare_bag_kg, fare_cabin_bag, fare_changeable, fare_refundable
      FROM jsonb_to_recordset($1::jsonb) AS x(
        origin text, destination text, origin_airport text, destination_airport text, departure_at timestamp,
        departure_utc timestamptz, airline text, flight_number text, transfers smallint, duration_minutes int,
-       source_price numeric, source_currency text, link text, gate text)
+       source_price numeric, source_currency text, link text, gate text,
+       fare_checked_bags smallint, fare_bag_kg smallint, fare_cabin_bag boolean, fare_changeable boolean, fare_refundable boolean)
      ON CONFLICT (origin, destination, departure_at, airline, flight_number) DO UPDATE SET
        origin_airport = EXCLUDED.origin_airport,
        destination_airport = EXCLUDED.destination_airport,
@@ -241,6 +252,11 @@ export async function upsertOffers(offers, db = pool) {
        source_currency = EXCLUDED.source_currency,
        link = EXCLUDED.link,
        gate = EXCLUDED.gate,
+       fare_checked_bags = EXCLUDED.fare_checked_bags,
+       fare_bag_kg = EXCLUDED.fare_bag_kg,
+       fare_cabin_bag = EXCLUDED.fare_cabin_bag,
+       fare_changeable = EXCLUDED.fare_changeable,
+       fare_refundable = EXCLUDED.fare_refundable,
        fetched_at = NOW()`,
     [JSON.stringify(rows)]
   );
@@ -265,7 +281,7 @@ export async function listForRoute(
        AND source_currency = $4
        AND departure_utc > NOW() + make_interval(hours => $5::int)
        AND ($6::boolean = FALSE OR (NOT hidden AND fetched_at >= $7::timestamptz))
-     ORDER BY COALESCE(price_override, source_price), departure_at
+     ORDER BY source_price, departure_at
      LIMIT 300`,
     [origin, destination, month, sourceCurrency, publicOnly ? minHours : 0, publicOnly, freshSince ?? "-infinity"]
   );
@@ -278,7 +294,6 @@ export async function findOffer(id, db = pool) {
 }
 
 const OFFER_ADMIN_COLUMNS = {
-  priceOverride: "price_override",
   checkedBags: "checked_bags",
   cabinKg: "cabin_kg",
   info: "info",

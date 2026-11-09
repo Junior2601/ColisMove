@@ -13,6 +13,7 @@ const CONSTRAINT_ERRORS = {
   uq_flight_orders_reference: [409, "Référence déjà existante, réessayez."],
   chk_flight_orders_seats: [400, "9 passagers au maximum par demande."],
   chk_flight_orders_infants: [400, "Un bébé par adulte au maximum."],
+  chk_flight_orders_bags: [400, "Nombre de valises en soute invalide.", "checkedBags"],
 };
 
 // Codes d'erreur PostgreSQL génériques

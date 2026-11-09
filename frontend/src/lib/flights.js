@@ -2,7 +2,7 @@
 //  Billets d'avion : affichage et calcul du total (même calcul que le backend)
 // =========================================================
 
-import { plural } from "./format";
+import { formatNumber, plural } from "./format";
 
 // Logo de la compagnie (CDN d'Aviasales) : TK → logo Turkish Airlines
 export const airlineLogoUrl = (code) => `https://pics.avs.io/120/40/${code}.png`;
@@ -20,12 +20,27 @@ export function passengersLabel({ adults, children = 0, infants = 0 }) {
     .join(", ");
 }
 
-// "Cabine 7 kg · 1 bagage en soute (23 kg)"
+// cabinKg : 0 = aucun bagage cabine, null = inclus mais poids non précisé par Aviasales
+export const cabinLabel = (cabinKg) =>
+  cabinKg === null || cabinKg === undefined ? "Bagage cabine inclus" : cabinKg > 0 ? `Cabine ${cabinKg} kg` : "Sans bagage cabine";
+
+// Billet : "Cabine 7 kg · 2 valises en soute de 23 kg par passager"
 export function baggageLabel({ cabinKg, checkedBags, checkedBagKg }) {
-  const cabin = cabinKg > 0 ? `Cabine ${cabinKg} kg` : "Sans bagage cabine";
-  const hold = checkedBags > 0 ? `${plural(checkedBags, "bagage")} en soute (${checkedBagKg} kg)` : "sans bagage en soute";
+  const cabin = cabinLabel(cabinKg);
+  const hold = checkedBags > 0 ? `${plural(checkedBags, "valise")} en soute de ${checkedBagKg} kg par passager` : "sans valise en soute";
   return `${cabin} · ${hold}`;
 }
+
+// Demande : "Cabine 7 kg · 1 valise en soute de 23 kg (1 retirée)" (valises gardées, tous passagers)
+export function orderBaggageLabel({ flight, bags }) {
+  const cabin = cabinLabel(flight.cabinKg);
+  const hold = bags.kept > 0 ? `${plural(bags.kept, "valise")} en soute de ${flight.checkedBagKg} kg` : "sans valise en soute";
+  const removed = bags.removed > 0 ? ` (${bags.removed} retirée${bags.removed > 1 ? "s" : ""})` : "";
+  return `${cabin} · ${hold}${removed}`;
+}
+
+// "1 valise retirée", "2 valises retirées"
+export const removedBagsLabel = (count) => `${formatNumber(count)} valise${count > 1 ? "s" : ""} retirée${count > 1 ? "s" : ""}`;
 
 /* ---------- Mois de départ ---------- */
 
@@ -54,12 +69,16 @@ export function defaultMonth() {
 
 const round2 = (amount) => Math.round(amount * 100) / 100;
 
+// Valises en soute incluses pour la demande : par passager, bébés exclus
+export const includedBags = (offer, { adults, children }) => offer.checkedBags * (adults + children);
+
 /**
- * Passagers × prix + options (prix × quantité, × nombre de passagers pour une option « par passager »).
- * quantities : { [optionId]: quantité }
- * → { lines: [{ label, detail, amount }], total }
+ * Passagers × prix − valises retirées + options (prix × quantité, × nombre de passagers pour une option « par passager »).
+ * quantities : { [optionId]: quantité } · bagsKept : valises gardées (tous passagers)
+ * La réduction des valises ne dépasse jamais le prix des billets (même calcul que le backend).
+ * → { lines: [{ label, detail, amount }], total, freedKilos }
  */
-export function computeTotal(offer, { adults, children, infants }, quantities, options, formatPrice) {
+export function computeTotal(offer, { adults, children, infants }, quantities, options, formatPrice, bagsKept) {
   const lines = [];
   const addPassengers = (count, word, unitPrice) => {
     if (count > 0) lines.push({ label: plural(count, word), detail: `× ${formatPrice(unitPrice)}`, amount: count * unitPrice });
@@ -67,6 +86,13 @@ export function computeTotal(offer, { adults, children, infants }, quantities, o
   addPassengers(adults, "adulte", offer.adultPrice);
   addPassengers(children, "enfant", offer.childPrice);
   addPassengers(infants, "bébé", offer.infantPrice);
+
+  const fare = lines.reduce((sum, line) => sum + line.amount, 0);
+  const removed = Math.max(0, includedBags(offer, { adults, children }) - (bagsKept ?? Infinity));
+  if (removed > 0) {
+    const discount = round2(Math.min(removed * offer.bagRefund, fare));
+    lines.push({ label: removedBagsLabel(removed), detail: `× −${formatPrice(offer.bagRefund)}`, amount: -discount });
+  }
 
   const passengers = adults + children + infants;
   for (const option of options) {
@@ -77,5 +103,9 @@ export function computeTotal(offer, { adults, children, infants }, quantities, o
     const times = quantity * (perPassenger ? passengers : 1);
     lines.push({ label: option.label, detail: `${times} × ${formatPrice(option.price)}`, amount });
   }
-  return { lines, total: round2(lines.reduce((sum, line) => sum + line.amount, 0)) };
+  return {
+    lines,
+    total: round2(lines.reduce((sum, line) => sum + line.amount, 0)),
+    freedKilos: removed * offer.checkedBagKg,
+  };
 }

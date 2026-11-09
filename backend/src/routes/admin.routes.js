@@ -2,10 +2,13 @@ import { Router } from "express";
 import * as admin from "../controllers/admin.controller.js";
 import * as marketing from "../controllers/marketing.controller.js";
 import * as flight from "../controllers/flight.controller.js";
+import express from "express";
 import {
   adminOffersQuery,
   createFlightOptionBody,
+  freedKilosQuery,
   listFlightOrdersQuery,
+  sendFlightTicketBody,
   updateFlightOfferBody,
   updateFlightOptionBody,
   updateFlightOrderStatusBody,
@@ -17,7 +20,7 @@ import { validate } from "../middlewares/validate.js";
 import { idParam } from "../validators/common.js";
 import {
   cancelTripBody,
-  createTripBody,
+  createAdminTripBody,
   listReservationsQuery,
   listTravelersQuery,
   listTripsQuery,
@@ -38,7 +41,7 @@ router.get("/stats/actors", admin.getActorStats);
 
 // AdminVoyages.jsx (+ CreateTrip.jsx quand l'admin publie)
 router.get("/trips", validate({ query: listTripsQuery }), admin.listTrips);
-router.post("/trips", validate({ body: createTripBody }), admin.createTrip);
+router.post("/trips", validate({ body: createAdminTripBody }), admin.createTrip);
 router.patch("/trips/:id", validate({ params: idParam, body: updateTripBody }), admin.updateTrip);
 router.patch("/trips/:id/cancel", validate({ params: idParam, body: cancelTripBody }), admin.cancelTrip);
 
@@ -78,6 +81,16 @@ router.patch(
   validate({ params: idParam, body: updateFlightOrderStatusBody }),
   flight.updateOrderStatus
 );
+// Billet + reçu envoyés par e-mail (passe la demande à « Billet émis ») ; pièces jointes : corps plus lourd (voir app.js)
+router.post(
+  "/flight-orders/:id/ticket",
+  express.json({ limit: "12mb" }),
+  validate({ params: idParam, body: sendFlightTicketBody }),
+  flight.sendTicket
+);
+// Kilos libérés par les valises que les clients ont retirées de leur billet
+router.get("/flights/kilos", validate({ query: freedKilosQuery }), flight.listFreedKilos);
+router.get("/flights/kilos/:id", validate({ params: idParam }), flight.getFreedKilos);
 router.get("/flights/searches", flight.recentSearches);
 router.get("/flights/offers", validate({ query: adminOffersQuery }), flight.listOffers);
 router.patch("/flights/offers/:id", validate({ params: idParam, body: updateFlightOfferBody }), flight.updateOffer);

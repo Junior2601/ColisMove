@@ -2,7 +2,7 @@ import nodemailer from "nodemailer";
 import { env, isDev } from "../config/env.js";
 
 /**
- * Envoi d'e-mails transactionnels (mot de passe oublié, alertes de sécurité).
+ * Envoi d'e-mails transactionnels (mot de passe oublié, alertes de sécurité, billets d'avion).
  * Sans SMTP_HOST : en développement, l'e-mail (et son lien) s'affiche dans la console du serveur.
  */
 const transporter = env.smtp.host
@@ -17,6 +17,8 @@ const transporter = env.smtp.host
 if (!transporter) {
   console.warn("✉️  SMTP non configuré : les e-mails ne sont pas envoyés" + (isDev ? " (affichés dans la console)." : " !"));
 }
+
+export const isMailConfigured = () => transporter !== null;
 
 const escapeHtml = (text) =>
   String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -51,14 +53,23 @@ function layout({ preheader, title, paragraphs, button, footer }) {
 </body></html>`;
 }
 
-export async function sendMail({ to, subject, text, html }) {
+/**
+ * Envoie un e-mail. Renvoie true s'il est parti, false si le SMTP n'est pas configuré.
+ * attachments : [{ filename, content: Buffer, contentType }]
+ */
+export async function sendMail({ to, subject, text, html, attachments = [] }) {
   if (!transporter) {
     // Le lien de réinitialisation est un secret : affiché seulement en développement
-    if (isDev) console.log(`\n✉️  E-MAIL (non envoyé, SMTP absent)\nÀ : ${to}\nObjet : ${subject}\n\n${text}\n`);
-    else console.warn(`✉️  E-mail « ${subject} » non envoyé : SMTP non configuré.`);
-    return;
+    if (isDev) {
+      const files = attachments.length ? `\nPièces jointes : ${attachments.map((a) => a.filename).join(", ")}` : "";
+      console.log(`\n✉️  E-MAIL (non envoyé, SMTP absent)\nÀ : ${to}\nObjet : ${subject}${files}\n\n${text}\n`);
+    } else {
+      console.warn(`✉️  E-mail « ${subject} » non envoyé : SMTP non configuré.`);
+    }
+    return false;
   }
-  await transporter.sendMail({ from: env.mailFrom, to, subject, text, html });
+  await transporter.sendMail({ from: env.mailFrom, to, subject, text, html, attachments });
+  return true;
 }
 
 /** Lien pour choisir un nouveau mot de passe */
@@ -106,6 +117,65 @@ export function sendPasswordChanged({ email, firstName }) {
       ],
       button: { label: "Ce n'est pas moi : réinitialiser", url: `${env.appUrl}/mot-de-passe-oublie` },
       footer: "Si c'est bien vous, vous n'avez rien à faire.",
+    }),
+  });
+}
+
+/**
+ * Billet d'avion émis : reçu détaillé (vol, passagers, bagages, prix payé) + billet en pièce jointe.
+ *  details    : [[libellé, valeur], …]  (référence, vol, compagnie, passagers, bagages)
+ *  priceLines : [[libellé, montant formaté], …]  puis total : montant formaté
+ */
+export function sendFlightTicket({ to, clientName, route, details, priceLines, total, note, attachments, url }) {
+  const files = attachments.length;
+  const attached = files ? ` Vous le trouverez en pièce jointe${files > 1 ? "s" : ""}.` : "";
+  const row = (label, value, strong = false) =>
+    `<tr><td style="padding:7px 0;color:#5B6B82;font-size:14px;vertical-align:top">${escapeHtml(label)}</td>` +
+    `<td style="padding:7px 0 7px 12px;font-size:${strong ? "16px;font-weight:800" : "14px;font-weight:600"};text-align:right">${escapeHtml(value)}</td></tr>`;
+  const table = (rows) =>
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #E8EAEE">${rows}</table>`;
+
+  const receiptHtml =
+    table(details.map(([label, value]) => row(label, value)).join("")) +
+    `<div style="font-size:15px;font-weight:800;padding:16px 0 4px">Reçu</div>` +
+    table(priceLines.map(([label, value]) => row(label, value)).join("") + row("Total payé", total, true));
+
+  const text = [
+    `Bonjour ${clientName},`,
+    "",
+    `Votre billet ${route} est émis.${attached}`,
+    ...(note ? [`Information de l'équipe MoveColis : ${note}`] : []),
+    "",
+    ...details.map(([label, value]) => `${label} : ${value}`),
+    "",
+    "Reçu",
+    ...priceLines.map(([label, value]) => `${label} : ${value}`),
+    `Total payé : ${total}`,
+    "",
+    `Votre conversation avec l'équipe MoveColis : ${url}`,
+    "",
+    "Bon voyage !",
+    "L'équipe MoveColis",
+  ].join("\n");
+
+  return sendMail({
+    to,
+    subject: `Votre billet d'avion ${route}`,
+    text,
+    attachments,
+    html: layout({
+      preheader: `Votre billet ${route} est émis.`,
+      title: "Votre billet d'avion",
+      paragraphs: [
+        `Bonjour ${escapeHtml(clientName)},`,
+        `Votre billet <b>${escapeHtml(route)}</b> est émis.${escapeHtml(attached)}`,
+        ...(note ? [`<b>Information de l'équipe MoveColis :</b> ${escapeHtml(note)}`] : []),
+        receiptHtml,
+      ],
+      button: { label: "Ouvrir ma conversation", url },
+      footer:
+        "Vérifiez les noms des passagers et les horaires sur votre billet. " +
+        "Une question ? Écrivez à l'équipe MoveColis dans la conversation.<br>Bon voyage !",
     }),
   });
 }

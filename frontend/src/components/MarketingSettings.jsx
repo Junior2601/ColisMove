@@ -55,8 +55,8 @@ export default function MarketingSettings({ user }) {
       <div className="border border-line-light rounded-2xl bg-white overflow-hidden mb-3">
         {isClient && (
           <Switch
-            label="Alertes trajets et rappels de départ"
-            description="Un voyageur part sur un trajet qui vous intéresse, un départ approche, la sélection de la semaine."
+            label="Nouveaux kilos et alertes trajets"
+            description="Chaque nouveau voyage publié, un départ qui approche sur un trajet qui vous intéresse, la sélection de la semaine."
             checked={data.routeAlerts}
             disabled={busy}
             onChange={(routeAlerts) => run(() => marketingApi.updatePreferences({ routeAlerts }))}
@@ -75,8 +75,9 @@ export default function MarketingSettings({ user }) {
         />
       </div>
       <p className="text-xs text-muted mb-4">
-        Au plus 1 notification de ce type par jour et 3 par semaine, jamais entre 21 h et 8 h (heure de votre appareil). Les
-        messages et les étapes de vos colis ne sont pas concernés.
+        Nouveaux kilos : à chaque publication. Rappels, sélection et bons plans : au plus 1 par jour et 3 par semaine.
+        Jamais entre 21 h et 8 h (heure de votre appareil). Les messages et les étapes de vos colis ne sont pas
+        concernés.
       </p>
 
       {isClient && (

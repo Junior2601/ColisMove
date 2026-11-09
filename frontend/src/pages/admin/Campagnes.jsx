@@ -16,6 +16,7 @@ import { formatDayMonth, formatNumber } from "../../lib/format";
 const AUDIENCES = { CLIENTS: "Clients", VOYAGEURS: "Voyageurs", ALL: "Clients et voyageurs" };
 
 const KIND_LABELS = {
+  NEW_TRIP: "Nouveaux kilos publiés",
   ROUTE_ALERT: "Alertes trajets",
   DEPARTURE_SOON: "Départs imminents",
   WEEKLY_DIGEST: "Sélection de la semaine",

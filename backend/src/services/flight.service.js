@@ -1,10 +1,11 @@
 /**
- * Billets d'avion : recherche (prix Aviasales mis en cache), règles de prix de l'admin, options.
+ * Billets d'avion : recherche (prix Aviasales mis en cache), règles de l'admin, options.
  *
- * Prix adulte d'un billet :
- *   - prix fixé par l'admin sur ce billet, sinon
- *   - prix Aviasales × taux de change × (1 + marge %) + frais de service, arrondi au supérieur
- * Enfant (2-11 ans) et bébé (< 2 ans) : pourcentage du prix adulte, arrondi de la même façon.
+ * Prix adulte d'un billet = prix Aviasales, simplement converti dans la devise affichée
+ * (sans marge ni frais, arrondi seulement à l'unité de la devise).
+ * Enfant (2-11 ans) et bébé (< 2 ans) : pourcentage du prix adulte (Aviasales ne donne que le prix adulte).
+ * Valises en soute : le client peut en retirer, chacune réduit le prix de `bagRefund` ;
+ * les kilos libérés reviennent à MoveColis (espace « Kilos disponibles » de l'admin).
  */
 import { withTransaction } from "../config/db.js";
 import * as flightModel from "../models/flight.model.js";
@@ -14,31 +15,65 @@ import { badRequest, conflict, notFound } from "../utils/AppError.js";
 
 const round2 = (amount) => Math.round(amount * 100) / 100;
 
-// Arrondi au multiple supérieur de `step` (0 = au centime)
-const roundUp = (amount, step) => (step > 0 ? Math.ceil(amount / step - 1e-9) * step : round2(amount));
+// Nombre de décimales de la devise : XOF → 0, EUR → 2 (mêmes règles que le navigateur)
+function currencyDecimals(currency) {
+  try {
+    return new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits;
+  } catch {
+    return 2;
+  }
+}
 
+// Arrondi à l'unité de la devise (le franc CFA n'a pas de centimes)
+export function roundCurrency(amount, currency) {
+  const factor = 10 ** currencyDecimals(currency);
+  return Math.round(amount * factor) / factor;
+}
+
+/** Prix exacts d'Aviasales, convertis dans la devise affichée */
 export function priceOffer(offer, settings) {
-  const adultPrice =
-    offer.priceOverride ??
-    roundUp(
-      offer.sourcePrice * settings.exchangeRate * (1 + settings.markupPercent / 100) + settings.serviceFee,
-      settings.roundTo
-    );
+  const rate = offer.sourceCurrency === settings.currency ? 1 : settings.exchangeRate;
+  const adultPrice = roundCurrency(offer.sourcePrice * rate, settings.currency);
   return {
     adultPrice,
-    childPrice: roundUp((adultPrice * settings.childPercent) / 100, settings.roundTo),
-    infantPrice: roundUp((adultPrice * settings.infantPercent) / 100, settings.roundTo),
+    childPrice: roundCurrency((adultPrice * settings.childPercent) / 100, settings.currency),
+    infantPrice: roundCurrency((adultPrice * settings.infantPercent) / 100, settings.currency),
+  };
+}
+
+/**
+ * Valises en soute d'une demande. Bébés exclus : seuls adultes et enfants ont des valises.
+ * bagsKept : valises gardées par le client (undefined = toutes celles incluses).
+ * La réduction ne dépasse jamais le prix des billets.
+ */
+export function computeBags(offer, { adults, children }, bagsKept, fare) {
+  const included = offer.checkedBags * (adults + children);
+  const kept = bagsKept ?? included;
+  if (kept < 0 || kept > included) {
+    throw badRequest(`Valises en soute : entre 0 et ${included} pour ${adults + children} passager(s).`);
+  }
+  if (kept < included && !(offer.bagRefund > 0)) throw badRequest("Ce billet ne permet pas de retirer de valise.");
+  const removed = included - kept;
+  return {
+    included,
+    kept,
+    removed,
+    refund: offer.bagRefund,
+    discount: round2(Math.min(removed * offer.bagRefund, fare)),
+    freedKilos: removed * offer.checkedBagKg,
   };
 }
 
 /**
  * Total d'une demande, calculé côté serveur (le navigateur fait le même calcul pour l'affichage) :
- * passagers × prix + options (prix × quantité, × nombre de passagers pour une option « par passager »).
+ * passagers × prix − valises retirées + options (prix × quantité, × nombre de passagers pour une option « par passager »).
  */
-export function computeTotal(prices, { adults, children, infants }, chosenOptions, availableOptions) {
+export function computeTotal(offer, { adults, children, infants }, chosenOptions, availableOptions, bagsKept) {
   const byId = new Map(availableOptions.map((option) => [option.id, option]));
   const passengers = adults + children + infants;
-  let total = adults * prices.adultPrice + children * prices.childPrice + infants * prices.infantPrice;
+  const fare = adults * offer.adultPrice + children * offer.childPrice + infants * offer.infantPrice;
+  const bags = computeBags(offer, { adults, children }, bagsKept, fare);
+  let total = fare - bags.discount;
 
   const lines = [];
   for (const { id, quantity } of chosenOptions) {
@@ -50,7 +85,7 @@ export function computeTotal(prices, { adults, children, infants }, chosenOption
     lines.push({ id: option.id, label: option.label, unit: option.unit, quantity, unitPrice: option.price, amount });
     total += amount;
   }
-  return { options: lines, totalAmount: round2(total) };
+  return { options: lines, bags, totalAmount: round2(total) };
 }
 
 export async function getSettings() {
@@ -116,6 +151,29 @@ function assertEnabled(settings) {
   if (!settings.enabled) throw notFound("La vente de billets d'avion n'est pas disponible pour le moment.");
 }
 
+/**
+ * Bagages d'un billet : modification de l'admin sur ce billet, sinon ceux d'Aviasales, sinon les réglages par défaut.
+ *  - checkedBags  : valises en soute par passager (hors bébés)
+ *  - checkedBagKg : poids d'une valise (réglage par défaut si Aviasales donne le nombre sans le poids)
+ *  - cabinKg      : 0 = aucun bagage cabine, null = inclus mais poids non précisé par Aviasales
+ */
+export function baggageOf(offer, settings) {
+  const fromAviasales = offer.fareCheckedBags !== null && offer.fareCheckedBags !== undefined;
+  let cabinKg = offer.cabinKg;
+  if (cabinKg === null || cabinKg === undefined) {
+    if (offer.fareCabinBag === true) cabinKg = null;
+    else if (offer.fareCabinBag === false) cabinKg = 0;
+    else cabinKg = settings.defaultCabinKg;
+  }
+  return {
+    checkedBags: offer.checkedBags ?? offer.fareCheckedBags ?? settings.defaultCheckedBags,
+    checkedBagKg: offer.fareBagKg ?? settings.checkedBagKg,
+    cabinKg,
+    // Origine des valises en soute affichées : ADMIN (modifiées), AVIASALES, DEFAULT (réglages)
+    baggageSource: offer.checkedBags !== null && offer.checkedBags !== undefined ? "ADMIN" : fromAviasales ? "AVIASALES" : "DEFAULT",
+  };
+}
+
 // Billet tel que le client le voit (prix calculés, bagages, noms des villes et de la compagnie)
 function toPublicOffer(offer, settings, { cities, airlines }) {
   return {
@@ -130,9 +188,8 @@ function toPublicOffer(offer, settings, { cities, airlines }) {
     flightNumber: offer.flightNumber,
     transfers: offer.transfers,
     durationMinutes: offer.durationMinutes,
-    checkedBags: offer.checkedBags ?? settings.defaultCheckedBags,
-    cabinKg: offer.cabinKg ?? settings.defaultCabinKg,
-    checkedBagKg: settings.checkedBagKg,
+    ...baggageOf(offer, settings), // checkedBags (par passager, hors bébés), checkedBagKg, cabinKg, baggageSource
+    bagRefund: settings.bagRefund, // réduction par valise retirée (0 = impossible)
     info: offer.info,
     ...priceOffer(offer, settings),
     currency: settings.currency,
@@ -259,16 +316,22 @@ export async function deleteOption(id) {
   return { ok: true };
 }
 
-// Billet vu par l'admin : prix Aviasales, prix calculé par les règles, modifications, lien d'achat
+// Billet vu par l'admin : prix Aviasales (et sa conversion), modifications, lien d'achat
 function toAdminOffer(offer, settings, names, fetchedAt) {
   return {
     ...toPublicOffer(offer, settings, names),
     sourcePrice: offer.sourcePrice,
     sourceCurrency: offer.sourceCurrency,
-    rulePrice: priceOffer({ ...offer, priceOverride: null }, settings).adultPrice, // sans le prix fixé à la main
-    priceOverride: offer.priceOverride,
     checkedBagsOverride: offer.checkedBags,
     cabinKgOverride: offer.cabinKg,
+    // Ce que dit Aviasales sur ce tarif (null = non précisé)
+    fare: {
+      checkedBags: offer.fareCheckedBags,
+      bagKg: offer.fareBagKg,
+      cabinBag: offer.fareCabinBag,
+      changeable: offer.fareChangeable,
+      refundable: offer.fareRefundable,
+    },
     hidden: offer.hidden,
     stale: Boolean(fetchedAt && offer.fetchedAt < fetchedAt), // absent de la dernière réponse d'Aviasales
     fetchedAt: offer.fetchedAt,

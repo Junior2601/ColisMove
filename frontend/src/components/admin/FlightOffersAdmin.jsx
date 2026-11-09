@@ -10,15 +10,26 @@ import { errorMessage } from "../../api/client";
 import { useApi } from "../../hooks/useApi";
 import { useFlash } from "../../hooks/useFlash";
 import { currencySymbol, formatMoney, formatNumber, formatTripDate, formatTripTime, plural, timeAgo } from "../../lib/format";
-import { defaultMonth, formatDuration, formatMonth, stopsLabel, upcomingMonths } from "../../lib/flights";
+import { baggageLabel, defaultMonth, formatDuration, formatMonth, stopsLabel, upcomingMonths } from "../../lib/flights";
+
+// Ce que dit Aviasales sur ce tarif : "2 valises de 23 kg · cabine incluse · modifiable · non remboursable"
+function fareLabel(fare) {
+  const parts = [];
+  if (fare.checkedBags === null) parts.push("valises non précisées");
+  else if (fare.checkedBags === 0) parts.push("sans valise en soute");
+  else parts.push(`${plural(fare.checkedBags, "valise")}${fare.bagKg ? ` de ${fare.bagKg} kg` : ""}`);
+  if (fare.cabinBag !== null) parts.push(fare.cabinBag ? "cabine incluse" : "sans bagage cabine");
+  if (fare.changeable !== null) parts.push(fare.changeable ? "modifiable" : "non modifiable");
+  if (fare.refundable !== null) parts.push(fare.refundable ? "remboursable" : "non remboursable");
+  return parts.join(" · ");
+}
 
 // "" → null (= règle générale), sinon nombre
 const numberOrNull = (value) => (String(value).trim() === "" ? null : Number(String(value).replace(",", ".")));
 
-/* ===== Modification d'un billet : prix, bagages, précision, visibilité ===== */
+/* ===== Modification d'un billet : bagages, précision, visibilité (le prix reste celui d'Aviasales) ===== */
 function EditOfferModal({ offer, settings, onClose, onSaved }) {
   const [form, setForm] = useState({
-    priceOverride: offer.priceOverride ?? "",
     checkedBags: offer.checkedBagsOverride ?? "",
     cabinKg: offer.cabinKgOverride ?? "",
     info: offer.info ?? "",
@@ -34,7 +45,6 @@ function EditOfferModal({ offer, settings, onClose, onSaved }) {
     setError(null);
     try {
       const updated = await adminApi.updateFlightOffer(offer.id, {
-        priceOverride: numberOrNull(form.priceOverride),
         checkedBags: numberOrNull(form.checkedBags),
         cabinKg: numberOrNull(form.cabinKg),
         info: form.info.trim() || null,
@@ -51,25 +61,27 @@ function EditOfferModal({ offer, settings, onClose, onSaved }) {
     <Modal open title="Modifier le billet" onClose={saving ? undefined : onClose}>
       <p className="text-sm text-muted mb-4">
         {offer.airlineName} {offer.airline} {offer.flightNumber} · {formatTripDate(offer.departureAt)} à{" "}
-        {formatTripTime(offer.departureAt)}. Laissez un champ vide pour appliquer la règle générale. Vos modifications
-        sont conservées quand Aviasales met ses prix à jour.
+        {formatTripTime(offer.departureAt)}. Prix client : {formatMoney(offer.adultPrice, offer.currency)} (prix exact
+        d&apos;Aviasales, {formatNumber(offer.sourcePrice)} {currencySymbol(offer.sourceCurrency)}). Laissez un champ vide
+        pour garder les bagages d&apos;Aviasales ({fareLabel(offer.fare)}). Vos modifications sont conservées quand
+        Aviasales met ses prix à jour.
       </p>
       <form onSubmit={handleSave}>
-        <Field
-          label={`Prix adulte (${currencySymbol(offer.currency)})`}
-          hint={`Prix Aviasales : ${formatNumber(offer.sourcePrice)} ${currencySymbol(offer.sourceCurrency)} · règle générale : ${formatMoney(offer.rulePrice, offer.currency)}. Enfant et bébé suivent les pourcentages des règles.`}
-        >
-          <input value={form.priceOverride} onChange={set("priceOverride")} inputMode="decimal"
-            placeholder={`Règle : ${formatNumber(offer.rulePrice)}`} className={inputClass} />
-        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Bagages en soute inclus" hint={`Règle : ${settings.defaultCheckedBags} × ${settings.checkedBagKg} kg`}>
+          <Field
+            label="Valises en soute par passager"
+            hint={offer.fare.checkedBags !== null ? `Aviasales : ${offer.fare.checkedBags}` : `Réglage : ${settings.defaultCheckedBags}`}
+          >
             <input value={form.checkedBags} onChange={set("checkedBags")} inputMode="numeric"
-              placeholder={String(settings.defaultCheckedBags)} className={inputClass} />
+              placeholder={String(offer.fare.checkedBags ?? settings.defaultCheckedBags)} className={inputClass} />
           </Field>
-          <Field label="Bagage cabine (kg)" hint={`Règle : ${settings.defaultCabinKg} kg`}>
+          <Field
+            label="Bagage cabine (kg)"
+            hint={offer.fare.cabinBag !== null ? `Aviasales : ${offer.fare.cabinBag ? "inclus" : "aucun"}` : `Réglage : ${settings.defaultCabinKg} kg`}
+          >
             <input value={form.cabinKg} onChange={set("cabinKg")} inputMode="numeric"
-              placeholder={String(settings.defaultCabinKg)} className={inputClass} />
+              placeholder={offer.fare.cabinBag === false ? "0" : offer.fare.cabinBag ? "Poids ?" : String(settings.defaultCabinKg)}
+              className={inputClass} />
           </Field>
         </div>
         <Field label="Précision affichée au client (facultatif)">
@@ -94,7 +106,7 @@ function EditOfferModal({ offer, settings, onClose, onSaved }) {
 }
 
 function OfferRow({ offer, onEdit, onToggleHidden }) {
-  const edited = offer.priceOverride !== null || offer.checkedBagsOverride !== null || offer.cabinKgOverride !== null || offer.info;
+  const edited = offer.checkedBagsOverride !== null || offer.cabinKgOverride !== null || offer.info;
   return (
     <div className={`border border-line-light rounded-2xl bg-white p-4 ${offer.hidden || offer.stale ? "opacity-70" : ""}`}>
       <div className="flex justify-between items-start gap-3 flex-wrap">
@@ -119,28 +131,23 @@ function OfferRow({ offer, onEdit, onToggleHidden }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 mt-3 text-[13px]">
+      <div className="grid grid-cols-2 gap-2 mt-3 text-[13px]">
         <div>
-          <div className="text-xs text-muted">Aviasales</div>
+          <div className="text-xs text-muted">Prix Aviasales</div>
           <div className="font-semibold">{formatNumber(offer.sourcePrice)} {currencySymbol(offer.sourceCurrency)}</div>
         </div>
         <div>
-          <div className="text-xs text-muted">Règle</div>
-          <div className="font-semibold">{formatMoney(offer.rulePrice, offer.currency)}</div>
-        </div>
-        <div>
-          <div className="text-xs text-muted">Prix client</div>
-          <div className="font-extrabold">
-            {formatMoney(offer.adultPrice, offer.currency)}
-            {offer.priceOverride !== null && <span className="text-primary"> *</span>}
-          </div>
+          <div className="text-xs text-muted">Prix client (adulte)</div>
+          <div className="font-extrabold">{formatMoney(offer.adultPrice, offer.currency)}</div>
         </div>
       </div>
       <div className="text-xs text-muted mt-2">
-        Soute : {offer.checkedBags} × {offer.checkedBagKg} kg{offer.checkedBagsOverride !== null && " *"} · cabine{" "}
-        {offer.cabinKg} kg{offer.cabinKgOverride !== null && " *"}
+        Client : {baggageLabel(offer)}
+        {(offer.checkedBagsOverride !== null || offer.cabinKgOverride !== null) && " *"}
+        {offer.baggageSource === "DEFAULT" && " (réglages : Aviasales ne précise pas)"}
         {offer.info && ` · « ${offer.info} »`}
       </div>
+      <div className="text-xs text-muted">Tarif Aviasales : {fareLabel(offer.fare)}</div>
 
       <div className="flex gap-2 flex-wrap mt-3">
         <button type="button" onClick={() => onEdit(offer)} className={`${btnPrimary} ${btnSm}`}>
@@ -211,8 +218,8 @@ export default function FlightOffersAdmin({ settings }) {
   return (
     <>
       <p className="text-sm text-muted mb-3">
-        Les prix viennent d&apos;Aviasales et sont transformés par vos règles. Sur chaque billet, vous pouvez fixer un
-        autre prix, changer les bagages inclus, ajouter une précision ou le masquer.
+        Les clients voient le prix exact d&apos;Aviasales (converti dans votre devise). Sur chaque billet, vous pouvez
+        changer les bagages inclus, ajouter une précision ou le masquer.
       </p>
 
       <form

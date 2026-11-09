@@ -6,6 +6,7 @@ import * as messageModel from "../models/message.model.js";
 import * as conversationModel from "../models/conversation.model.js";
 import * as notificationService from "./notification.service.js";
 import * as marketingService from "./marketing.service.js";
+import * as flightOrderService from "./flightOrder.service.js";
 import * as realtime from "../socket/realtime.js";
 import { paths } from "../utils/hashid.js";
 import { routeText } from "../utils/names.js";
@@ -45,13 +46,22 @@ export async function listTrips(filters) {
 /**
  * Création d'un voyage. Réutilisé tel quel par le module voyageur :
  * seul ownerId change (l'admin ou le voyageur connecté).
+ * flightOrderId (admin) : le voyage met en vente les kilos libérés par les valises retirées sur ce billet.
  */
-export async function createTrip(ownerId, data) {
+export async function createTrip(ownerId, data, { flightOrderId = null } = {}) {
   const trip = { stopCity: null, stopDuration: null, ...data };
   assertTripIsConsistent(trip);
   assertNotInPast(trip.departureAt);
-  const created = await tripModel.create({ ...trip, ownerId });
-  marketingService.onTripPublishedSafely(created.id); // alertes trajets (envoyées 10 min plus tard)
+  const created = flightOrderId
+    ? await withTransaction(async (db) => {
+        await flightOrderService.assertKilosPublishable(flightOrderId, db);
+        const saved = await tripModel.create({ ...trip, ownerId }, db);
+        await flightOrderService.linkKilosTrip(flightOrderId, saved.id, db);
+        return saved;
+      })
+    : await tripModel.create({ ...trip, ownerId });
+  if (flightOrderId) realtime.emitToAdmins("flight-orders:updated", {}); // espace « Kilos disponibles »
+  marketingService.onTripPublishedSafely(created.id); // notification à tous les clients (envoyée 10 min plus tard)
   return created;
 }
 

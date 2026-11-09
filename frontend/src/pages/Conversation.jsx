@@ -1,20 +1,22 @@
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Check, ExternalLink, MapPin, SendHorizontal, X } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, Mail, MapPin, SendHorizontal, X } from "lucide-react";
 import Layout from "../components/Layout";
 import ReservationStatusModal from "../components/ReservationStatusModal";
+import SendTicketModal from "../components/admin/SendTicketModal";
 import { Badge, ErrorState, Loader, Notice, btnDanger, btnOutline, btnPrimary, btnSm } from "../components/ui";
 import { layoutVariantFor, useAuth } from "../context/AuthContext";
 import { useConversation } from "../hooks/useConversation";
 import {
-  dayLabel, formatClock, formatKg, formatMoney, formatPhone, formatTripDate, formatTripTime, ownerLabel, routeLabel,
+  dayLabel, formatClock, formatDateTime, formatKg, formatMoney, formatPhone, formatTripDate, formatTripTime, ownerLabel,
+  routeLabel,
 } from "../lib/format";
 import { decodeId } from "../lib/hashid";
 import {
   CANCELLABLE_FLIGHT_ORDER_STATUSES, CANCELLABLE_RESERVATION_STATUSES, FLIGHT_ORDER_STATUS, NEXT_FLIGHT_ORDER_STEP,
   NEXT_RESERVATION_STEP, RESERVATION_STATUS,
 } from "../lib/status";
-import { baggageLabel, passengersLabel, stopsLabel } from "../lib/flights";
+import { orderBaggageLabel, passengersLabel, removedBagsLabel, stopsLabel } from "../lib/flights";
 
 // La conversation porte sur une réservation de kilos ou sur une demande de billet d'avion
 const subjectOf = (detail) => (detail.kind === "FLIGHT" ? detail.flightOrder : detail.reservation);
@@ -127,8 +129,14 @@ function FlightOrderHeader({ detail, onAction }) {
           </div>
           <div className="text-[13px] text-muted">
             {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers)} ·{" "}
-            {baggageLabel(flight)}
+            {orderBaggageLabel(order)}
           </div>
+          {order.bags.removed > 0 && (
+            <div className="text-[13px] text-muted">
+              🧳 {removedBagsLabel(order.bags.removed)} : −{formatMoney(order.bags.discount, order.currency)}
+              {canManage && ` · ${formatKg(order.bags.freedKilos)} libérés pour MoveColis`}
+            </div>
+          )}
           {order.options.length > 0 && (
             <div className="text-[13px] text-muted">
               Options : {order.options.map((o) => (o.quantity > 1 ? `${o.label} × ${o.quantity}` : o.label)).join(", ")}
@@ -143,9 +151,15 @@ function FlightOrderHeader({ detail, onAction }) {
               <>
                 Client <b className="text-ink">{order.clientName}</b>
                 {order.isGuest ? " (visiteur)" : ""} · {formatPhone(order.clientPhone)}
+                {order.clientEmail && ` · ${order.clientEmail}`}
               </>
             )}
           </div>
+          {order.receiptSentAt && (
+            <div className="text-[13px] text-success font-semibold">
+              📧 Billet envoyé à {order.receiptEmail} le {formatDateTime(order.receiptSentAt)}
+            </div>
+          )}
         </div>
         <Badge tone={status.tone}>{status.label}</Badge>
       </div>
@@ -154,6 +168,11 @@ function FlightOrderHeader({ detail, onAction }) {
         {canManage && next && (
           <button type="button" onClick={() => onAction(next.status)} className={`${btnPrimary} ${btnSm}`}>
             <Check size={15} /> {next.action}
+          </button>
+        )}
+        {canManage && order.status === "ISSUED" && (
+          <button type="button" onClick={() => onAction("ISSUED")} className={`${btnOutline} ${btnSm}`}>
+            <Mail size={15} /> Renvoyer le billet
           </button>
         )}
         {/* Lien d'achat sur aviasales.ru : visible uniquement par l'équipe */}
@@ -437,7 +456,18 @@ export default function Conversation() {
         )}
       </div>
 
-      {pendingStatus && detail && (
+      {/* Billet émis (ou nouvel envoi) : l'équipe envoie le billet et le reçu par e-mail */}
+      {pendingStatus === "ISSUED" && isFlight && (
+        <SendTicketModal
+          order={detail.flightOrder}
+          onClose={() => setPendingStatus(null)}
+          onSent={(updated) => {
+            chat.patchFlightOrder(updated);
+            setPendingStatus(null);
+          }}
+        />
+      )}
+      {pendingStatus && detail && !(pendingStatus === "ISSUED" && isFlight) && (
         <ReservationStatusModal
           nextStatus={pendingStatus}
           variant={isFlight ? "flight" : "reservation"}

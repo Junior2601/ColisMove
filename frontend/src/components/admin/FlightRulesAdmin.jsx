@@ -10,8 +10,8 @@ const SOURCE_CURRENCIES = ["EUR", "RUB", "USD"];
 
 // Réglages numériques : valeur du formulaire (texte) ↔ nombre envoyé à l'API
 const NUMBER_FIELDS = [
-  "exchangeRate", "markupPercent", "serviceFee", "roundTo", "childPercent", "infantPercent",
-  "defaultCheckedBags", "defaultCabinKg", "checkedBagKg", "cacheHours", "minHoursBeforeDeparture",
+  "exchangeRate", "childPercent", "infantPercent",
+  "defaultCheckedBags", "defaultCabinKg", "checkedBagKg", "bagRefund", "cacheHours", "minHoursBeforeDeparture",
 ];
 const toNumber = (value) => Number(String(value).replace(",", ".").replace(/\s/g, ""));
 
@@ -24,12 +24,22 @@ function toForm(settings) {
   };
 }
 
-// Même calcul que le serveur : prix Aviasales × taux × (1 + marge) + frais, arrondi au supérieur
+// Décimales de la devise : XOF → 0, EUR → 2 (même règle que le serveur)
+function currencyDecimals(currency) {
+  try {
+    return new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits;
+  } catch {
+    return 2;
+  }
+}
+
+// Même calcul que le serveur : prix Aviasales simplement converti (sans marge ni frais)
 function examplePrice(form, sourcePrice) {
-  const raw = sourcePrice * toNumber(form.exchangeRate) * (1 + toNumber(form.markupPercent) / 100) + toNumber(form.serviceFee);
-  const step = toNumber(form.roundTo);
-  const price = step > 0 ? Math.ceil(raw / step - 1e-9) * step : Math.round(raw * 100) / 100;
-  return Number.isFinite(price) ? price : null;
+  const currency = form.currency.trim().toUpperCase();
+  const rate = form.sourceCurrency === currency ? 1 : toNumber(form.exchangeRate);
+  const factor = 10 ** currencyDecimals(currency);
+  const price = Math.round(sourcePrice * rate * factor) / factor;
+  return Number.isFinite(price) && price > 0 ? price : null;
 }
 
 function Section({ title, children }) {
@@ -144,7 +154,7 @@ function OptionEditor({ option, currency, onSaved, onDeleted, onCancel }) {
   );
 }
 
-/* ===== Onglet « Règles de prix » ===== */
+/* ===== Onglet « Réglages » ===== */
 export default function FlightRulesAdmin({ data, onSaved }) {
   const [form, setForm] = useState(() => toForm(data.settings));
   const [errors, setErrors] = useState({});
@@ -218,6 +228,10 @@ export default function FlightRulesAdmin({ data, onSaved }) {
         </Section>
 
         <Section title="Prix">
+          <p className="text-xs text-muted -mt-1 mb-3">
+            Les clients voient le prix exact d&apos;Aviasales, simplement converti dans la devise affichée, sans marge
+            ni frais.
+          </p>
           <div className="grid sm:grid-cols-3 gap-x-3">
             <Field label="Devise des prix Aviasales" hint="Changer de devise redemande tous les prix." error={errors.sourceCurrency}>
               <select value={form.sourceCurrency} onChange={set("sourceCurrency")} className={inputClass}>
@@ -230,11 +244,6 @@ export default function FlightRulesAdmin({ data, onSaved }) {
               <input value={form.currency} onChange={set("currency")} maxLength={3} className={`${inputClass} uppercase`} />
             </Field>
             {numberField("exchangeRate", `Taux : 1 ${form.sourceCurrency} =`, `en ${form.currency || "devise affichée"}`)}
-          </div>
-          <div className="grid sm:grid-cols-3 gap-x-3">
-            {numberField("markupPercent", "Marge (%)", "Ajoutée au prix Aviasales converti")}
-            {numberField("serviceFee", `Frais de service (${symbol})`, "Par billet adulte")}
-            {numberField("roundTo", `Arrondi au supérieur (${symbol})`, "Ex. 500 → 308 052 devient 308 500. 0 = aucun")}
           </div>
           {sample !== null && (
             <div className="bg-surface rounded-xl px-4 py-3 text-sm mb-1">
@@ -251,12 +260,26 @@ export default function FlightRulesAdmin({ data, onSaved }) {
           </div>
         </Section>
 
-        <Section title="Bagages inclus par défaut">
-          <p className="text-xs text-muted -mt-1 mb-3">Aviasales ne précise pas les bagages : ces valeurs s&apos;appliquent à tous les billets, sauf ceux que vous modifiez.</p>
+        <Section title="Bagages si Aviasales ne les précise pas">
+          <p className="text-xs text-muted -mt-1 mb-3">
+            Aviasales indique les bagages de chaque billet (nombre de valises, poids, bagage cabine) : ce sont eux que
+            voient les clients. Ces valeurs ne servent que s&apos;il manque une information, par exemple le poids des
+            valises.
+          </p>
           <div className="grid grid-cols-3 gap-x-3">
-            {numberField("defaultCheckedBags", "Bagages en soute")}
-            {numberField("checkedBagKg", "Poids d'un bagage soute (kg)")}
+            {numberField("defaultCheckedBags", "Valises en soute par passager")}
+            {numberField("checkedBagKg", "Poids d'une valise (kg)")}
             {numberField("defaultCabinKg", "Bagage cabine (kg)")}
+          </div>
+        </Section>
+
+        <Section title="Valises retirées par le client">
+          <p className="text-xs text-muted -mt-1 mb-3">
+            Le client peut garder moins de valises que celles incluses : chaque valise retirée baisse le prix de son
+            billet, et ses kilos apparaissent dans l&apos;onglet « Kilos disponibles », prêts à être publiés.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-x-3">
+            {numberField("bagRefund", `Réduction par valise retirée (${symbol})`, "0 = le client ne peut pas retirer de valise")}
           </div>
         </Section>
 
@@ -269,7 +292,7 @@ export default function FlightRulesAdmin({ data, onSaved }) {
 
         {saveError && <ErrorState message={saveError} />}
         <button type="submit" disabled={saving} className={`${btnPrimary} w-full mt-2`}>
-          {saved ? <><Check size={18} /> Règles enregistrées</> : <><Save size={18} /> {saving ? "Enregistrement…" : "Enregistrer les règles"}</>}
+          {saved ? <><Check size={18} /> Réglages enregistrés</> : <><Save size={18} /> {saving ? "Enregistrement…" : "Enregistrer les réglages"}</>}
         </button>
       </form>
 

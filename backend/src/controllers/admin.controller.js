@@ -24,7 +24,8 @@ export async function listTrips(req, res) {
 }
 
 export async function createTrip(req, res) {
-  const trip = await tripService.createTrip(req.user.id, req.valid.body);
+  const { flightOrderId, ...data } = req.valid.body; // flightOrderId : kilos libérés sur un billet vendu
+  const trip = await tripService.createTrip(req.user.id, data, { flightOrderId });
   res.status(201).json(trip);
 }
 

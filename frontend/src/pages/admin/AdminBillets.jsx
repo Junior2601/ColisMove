@@ -3,6 +3,7 @@ import Layout from "../../components/Layout";
 import FlightOrdersAdmin from "../../components/admin/FlightOrdersAdmin";
 import FlightOffersAdmin from "../../components/admin/FlightOffersAdmin";
 import FlightRulesAdmin from "../../components/admin/FlightRulesAdmin";
+import FreedKilosAdmin from "../../components/admin/FreedKilosAdmin";
 import { ChipRow, ErrorState, FilterChip, Loader, Notice } from "../../components/ui";
 import { adminApi } from "../../api/admin";
 import { useApi } from "../../hooks/useApi";
@@ -10,8 +11,9 @@ import { useApi } from "../../hooks/useApi";
 // L'onglet actif est dans l'URL (?onglet=regles) : le tableau de bord peut y renvoyer directement
 const TABS = [
   { key: "demandes", label: "Demandes" },
+  { key: "kilos", label: "Kilos disponibles" },
   { key: "billets", label: "Billets Aviasales" },
-  { key: "regles", label: "Règles de prix" },
+  { key: "regles", label: "Réglages" },
 ];
 
 export default function AdminBillets() {
@@ -25,7 +27,8 @@ export default function AdminBillets() {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-2xl font-extrabold tracking-tight mt-5 mb-1">Billets d&apos;avion</h1>
         <p className="text-muted text-sm mb-3">
-          Demandes d&apos;achat des clients, billets issus d&apos;Aviasales et règles de prix.
+          Demandes d&apos;achat des clients, kilos libérés par les valises retirées, billets issus d&apos;Aviasales et
+          réglages.
         </p>
 
         {data && !data.apiConfigured && (
@@ -39,7 +42,7 @@ export default function AdminBillets() {
           <Notice>
             La vente de billets est désactivée : l&apos;onglet n&apos;apparaît pas sur l&apos;accueil. Activez-la dans{" "}
             <button type="button" onClick={() => setParams({ onglet: "regles" })} className="font-bold underline">
-              Règles de prix
+              Réglages
             </button>
             .
           </Notice>
@@ -54,8 +57,9 @@ export default function AdminBillets() {
         </ChipRow>
 
         {tab === "demandes" && <FlightOrdersAdmin />}
-        {tab !== "demandes" && settings.error && <ErrorState error={settings.error} onRetry={settings.reload} />}
-        {tab !== "demandes" && !data && settings.loading && <Loader />}
+        {tab === "kilos" && <FreedKilosAdmin />}
+        {!["demandes", "kilos"].includes(tab) && settings.error && <ErrorState error={settings.error} onRetry={settings.reload} />}
+        {!["demandes", "kilos"].includes(tab) && !data && settings.loading && <Loader />}
         {tab === "billets" && data && <FlightOffersAdmin settings={data.settings} />}
         {tab === "regles" && data && <FlightRulesAdmin data={data} onSaved={settings.setData} />}
       </div>

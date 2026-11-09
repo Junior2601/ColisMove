@@ -106,6 +106,43 @@ export async function airlineNames(codes) {
   return new Map(codes.map((code) => [code, airlines.names.get(code) ?? code]));
 }
 
+/* ---------- Conditions du tarif ---------- */
+
+/**
+ * Bagages et conditions du tarif, codés par Aviasales dans le lien de chaque billet (paramètre static_fare_key),
+ * ex. "TY|P0|H1|L1_2_46|CH1|R0|TBC1" :
+ *   L1_2_46 → 2 valises en soute, 46 kg au total (L0 : aucune valise) · H1 → bagage cabine inclus (H0 : aucun)
+ *   CH1 → billet modifiable · R1 → billet remboursable (CH0 / R0 : non)
+ * Format non documenté, vérifié sur les billets affichés par aviasales.com (Qatar « 2 pcs » = L1_2_46,
+ * Royal Air Maroc « 23 kg » = L1_1_23). Code absent ou inconnu → null : les réglages de l'admin s'appliquent.
+ */
+export function parseFareKey(key) {
+  const fare = { checkedBags: null, bagKg: null, cabinBag: null, changeable: null, refundable: null };
+  for (const part of String(key ?? "").split("|")) {
+    let match;
+    if (part === "L0") {
+      fare.checkedBags = 0;
+    } else if ((match = /^L1_(\d{1,2})_(\d{1,3})$/.exec(part))) {
+      const pieces = Number(match[1]);
+      const totalKg = Number(match[2]);
+      fare.checkedBags = pieces;
+      fare.bagKg = pieces > 0 && totalKg > 0 ? Math.round(totalKg / pieces) : null; // 0 : poids non précisé
+    } else if ((match = /^H([01])$/.exec(part))) {
+      fare.cabinBag = match[1] === "1";
+    } else if ((match = /^CH([01])$/.exec(part))) {
+      fare.changeable = match[1] === "1";
+    } else if ((match = /^R([01])$/.exec(part))) {
+      fare.refundable = match[1] === "1";
+    }
+  }
+  return fare;
+}
+
+function fareOf(link) {
+  if (typeof link !== "string" || !link.startsWith("/")) return parseFareKey(null);
+  return parseFareKey(new URL(link, AVIASALES_SITE).searchParams.get("static_fare_key"));
+}
+
 /* ---------- Prix ---------- */
 
 /**
@@ -156,6 +193,7 @@ export async function fetchMonthPrices({ origin, destination, month, currency })
       sourceCurrency,
       link: typeof row.link === "string" ? row.link : null,
       gate: typeof row.gate === "string" ? row.gate.slice(0, 80) : null, // agence qui vend ce prix
+      fare: fareOf(row.link), // bagages et conditions de ce tarif
     });
   }
   return offers;

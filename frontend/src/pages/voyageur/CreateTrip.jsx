@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { CircleCheck, PlaneTakeoff, PlaneLanding, Repeat, Weight } from "lucide-react";
 import Layout from "../../components/Layout";
-import { Field, Notice, inputClass, btnPrimary, btnOutline } from "../../components/ui";
+import { ErrorState, Field, Loader, Notice, inputClass, btnPrimary, btnOutline } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 import { adminApi } from "../../api/admin";
 import { voyageurApi } from "../../api/voyageur";
 import { errorMessage, fieldErrors } from "../../api/client";
-import { formatMoney, formatTripDate, joinLocal, routeLabel } from "../../lib/format";
+import { useApi } from "../../hooks/useApi";
+import { formatKg, formatMoney, formatTripDate, joinLocal, routeLabel } from "../../lib/format";
+import { formatDuration, removedBagsLabel } from "../../lib/flights";
+import { decodeId } from "../../lib/hashid";
 
 // Devises proposées (le backend accepte tout code ISO à 3 lettres)
 const CURRENCIES = ["XOF", "XAF", "EUR", "RUB", "USD"];
@@ -19,6 +22,28 @@ const initial = {
   hasStop: false, stopCity: "", stopDuration: "",
   kilosTotal: "", pricePerKilo: "", currency: "XOF",
 };
+
+/**
+ * Formulaire pré-rempli avec les kilos libérés sur un billet vendu (valises retirées par le client).
+ * L'API Aviasales ne donne ni l'heure d'arrivée ni la ville d'escale : seule la date d'arrivée est estimée
+ * (départ + durée du vol, sans le décalage horaire), l'admin complète avec le billet.
+ */
+function formFromFreedKilos({ flight, bags, currency }) {
+  const arrival = flight.durationMinutes
+    ? new Date(new Date(`${flight.departureAt}:00Z`).getTime() + flight.durationMinutes * 60000).toISOString().slice(0, 10)
+    : "";
+  return {
+    ...initial,
+    departureCity: flight.origin.name,
+    departureDate: flight.departureAt.slice(0, 10),
+    departureTime: flight.departureAt.slice(11, 16),
+    arrivalCity: flight.destination.name,
+    arrivalDate: arrival,
+    hasStop: flight.transfers > 0,
+    kilosTotal: String(bags.freedKilos),
+    currency: CURRENCIES.includes(currency) ? currency : initial.currency,
+  };
+}
 
 // Erreurs de l'API sur departureAt / arrivalAt → affichées sous le champ date correspondant
 const FIELD_FOR_API_ERROR = { departureAt: "departureDate", arrivalAt: "arrivalDate" };
@@ -59,7 +84,21 @@ export default function CreateTrip() {
   const isAdmin = user.role === "ADMIN";
   const layoutVariant = isAdmin ? "admin" : "traveler";
 
+  // Admin : publication des kilos libérés sur un billet (/publier?billet=Xk9mP2qA, depuis « Kilos disponibles »)
+  const [params, setParams] = useSearchParams();
+  const flightOrderId = isAdmin ? decodeId(params.get("billet")) : null;
+  const freedKilos = useApi(
+    () => (flightOrderId ? adminApi.getFreedKilos(flightOrderId) : Promise.resolve(null)),
+    [flightOrderId]
+  );
+  const source = flightOrderId ? freedKilos.data : null; // demande de billet dont on publie les kilos
+
   const [form, setForm] = useState(initial);
+  const [prefilledFrom, setPrefilledFrom] = useState(null);
+  if (source && prefilledFrom !== source.id) {
+    setPrefilledFrom(source.id);
+    setForm(formFromFreedKilos(source));
+  }
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
@@ -92,7 +131,9 @@ export default function CreateTrip() {
     setFormError(null);
     try {
       // Même formulaire, endpoint selon le rôle : le voyage appartient à l'utilisateur connecté
-      const trip = isAdmin ? await adminApi.createTrip(payload) : await voyageurApi.createTrip(payload);
+      const trip = isAdmin
+        ? await adminApi.createTrip(source ? { ...payload, flightOrderId: source.id } : payload)
+        : await voyageurApi.createTrip(payload);
       setPublished(trip);
       window.scrollTo({ top: 0 });
     } catch (err) {
@@ -120,7 +161,12 @@ export default function CreateTrip() {
             Il apparaît maintenant dans la liste des voyages proposés aux clients.
           </p>
           <div className="flex flex-col gap-2.5">
-            <Link to={isAdmin ? "/admin/voyages" : "/voyageur/voyages"} className={`${btnPrimary} w-full`}>
+            {source && (
+              <Link to="/admin/billets?onglet=kilos" className={`${btnPrimary} w-full`}>
+                Retour aux kilos disponibles
+              </Link>
+            )}
+            <Link to={isAdmin ? "/admin/voyages" : "/voyageur/voyages"} className={source ? `${btnOutline} w-full` : `${btnPrimary} w-full`}>
               Voir mes voyages
             </Link>
             <button
@@ -128,6 +174,7 @@ export default function CreateTrip() {
               onClick={() => {
                 setForm(initial);
                 setPublished(null);
+                if (source) setParams({}); // le voyage suivant ne reprend pas les mêmes kilos
               }}
               className={`${btnOutline} w-full`}
             >
@@ -147,6 +194,19 @@ export default function CreateTrip() {
           Renseignez votre itinéraire et le nombre de kilos que vous vendez.
           Les heures sont celles indiquées sur votre billet (heure locale de chaque ville).
         </p>
+
+        {flightOrderId && freedKilos.loading && !source && <Loader label="Chargement des kilos libérés…" />}
+        {freedKilos.error && <ErrorState error={freedKilos.error} onRetry={freedKilos.reload} />}
+        {source && (
+          <Notice>
+            <b>Kilos libérés sur le billet {source.reference}</b> ({source.clientName},{" "}
+            {source.flight.airlineName} {source.flight.airline} {source.flight.flightNumber}) :{" "}
+            {removedBagsLabel(source.bags.removed)}, soit <b>{formatKg(source.bags.freedKilos)}</b>. Complétez avec le
+            billet l&apos;heure d&apos;arrivée (heure locale)
+            {source.flight.durationMinutes ? `, vol de ${formatDuration(source.flight.durationMinutes)}` : ""}
+            {source.flight.transfers > 0 ? " et l'escale" : ""}, puis fixez le prix par kilo.
+          </Notice>
+        )}
 
         <form onSubmit={handleSubmit} className="border border-line rounded-2xl p-5 bg-white mb-8">
 

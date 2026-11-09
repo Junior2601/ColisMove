@@ -162,6 +162,23 @@ export async function enqueue(items, db = pool) {
   return inserted;
 }
 
+/**
+ * Nouveau voyage publié : un message pour chaque client (compte actif, alertes activées), hors propriétaire.
+ * Ceux qui ont déjà une alerte ciblée pour ce voyage (même clé trip:id) ne reçoivent pas ce message en plus.
+ */
+export async function enqueueNewTripForAllClients(tripId, { title, body, link, sendAfter }, db = pool) {
+  const { rowCount } = await db.query(
+    `INSERT INTO marketing_queue (user_id, kind, title, body, link, dedupe_key, trip_id, send_after)
+     SELECT u.id, 'NEW_TRIP'::notification_type, $2, $3, $4, 'trip:' || t.id, t.id, $5
+     FROM trips t
+     JOIN users u ON u.role = 'CLIENT' AND u.status = 'APPROVED' AND u.marketing_route_alerts AND u.id <> t.owner_id
+     WHERE t.id = $1
+     ON CONFLICT (user_id, dedupe_key) DO NOTHING`,
+    [tripId, title, body, link, sendAfter]
+  );
+  return rowCount;
+}
+
 /** Messages à envoyer maintenant, avec ce qu'il faut pour décider (préférences, fuseau, voyage encore réservable) */
 export async function fetchDue(limit, db = pool) {
   const { rows } = await db.query(
@@ -183,12 +200,13 @@ export async function fetchDue(limit, db = pool) {
   return rows;
 }
 
-// Messages marketing déjà reçus par la personne (plafonds)
+// Messages marketing déjà reçus par la personne (plafonds) ; les annonces de nouveaux voyages ne comptent pas
 export async function countRecentSent(userId, db = pool) {
   const { rows } = await db.query(
     `SELECT COUNT(*) FILTER (WHERE sent_at > NOW() - INTERVAL '1 day')  AS day,
             COUNT(*) FILTER (WHERE sent_at > NOW() - INTERVAL '7 days') AS week
-     FROM marketing_queue WHERE user_id = $1 AND status = 'SENT'`,
+     FROM marketing_queue
+     WHERE user_id = $1 AND status = 'SENT' AND kind NOT IN ('ROUTE_ALERT', 'NEW_TRIP')`,
     [userId]
   );
   return rows[0];

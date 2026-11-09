@@ -10,8 +10,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useApi } from "../../hooks/useApi";
 import { saveGuestAccess } from "../../lib/guestAccess";
 import { decodeId, paths } from "../../lib/hashid";
-import { formatMoney, formatTripDate, formatTripTime } from "../../lib/format";
-import { baggageLabel, computeTotal, formatDuration, stopsLabel } from "../../lib/flights";
+import { formatKg, formatMoney, formatTripDate, formatTripTime, plural } from "../../lib/format";
+import { baggageLabel, computeTotal, formatDuration, includedBags, stopsLabel } from "../../lib/flights";
 
 // Ligne clé/valeur du récapitulatif
 function Row({ k, v }) {
@@ -68,13 +68,14 @@ export default function FlightOffer() {
 
   const [passengers, setPassengers] = useState({ adults: 1, children: 0, infants: 0 });
   const [quantities, setQuantities] = useState({}); // { [optionId]: quantité }
-  const [form, setForm] = useState({ name: "", phone: "", note: "" });
+  const [removedBags, setRemovedBags] = useState(0); // valises en soute retirées (réduction sur le billet)
+  const [form, setForm] = useState({ name: "", phone: "", email: "", note: "" });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const nameRef = useRef(null);
 
-  // Client connecté : nom et téléphone pré-remplis depuis son compte (une fois le compte chargé)
+  // Client connecté : nom, téléphone et e-mail pré-remplis depuis son compte (une fois le compte chargé)
   const [prefilledFor, setPrefilledFor] = useState(null);
   if (user?.role === "CLIENT" && prefilledFor !== user.id) {
     setPrefilledFor(user.id);
@@ -82,6 +83,7 @@ export default function FlightOffer() {
       ...f,
       name: f.name || `${user.firstName} ${user.lastName}`,
       phone: f.phone || `+${user.phone}`,
+      email: f.email || user.email || "",
     }));
   }
 
@@ -107,7 +109,11 @@ export default function FlightOffer() {
   const { offer, config } = data;
   const money = (amount) => formatMoney(amount, offer.currency);
   const seats = passengers.adults + passengers.children + passengers.infants;
-  const { lines, total } = computeTotal(offer, passengers, quantities, config.options, money);
+  // Valises en soute : incluses pour tous les passagers (hors bébés), le client peut en retirer si l'admin l'autorise
+  const bagsIncluded = includedBags(offer, passengers);
+  const canRemoveBags = offer.bagRefund > 0;
+  const bagsKept = bagsIncluded - (canRemoveBags ? Math.min(removedBags, bagsIncluded) : 0);
+  const { lines, total, freedKilos } = computeTotal(offer, passengers, quantities, config.options, money, bagsKept);
   const blocker = orderBlocker(user);
   const route = `${offer.origin.name} → ${offer.destination.name}`;
   // Retour à la recherche de ce trajet et de ce mois (même depuis un lien partagé)
@@ -133,8 +139,10 @@ export default function FlightOffer() {
         offerId: offer.id,
         clientName: form.name.trim(),
         clientPhone: form.phone,
+        clientEmail: form.email.trim(),
         note: form.note.trim() || null,
         ...passengers,
+        checkedBags: bagsKept,
         options: Object.entries(quantities)
           .filter(([, quantity]) => quantity > 0)
           .map(([id, quantity]) => ({ id: Number(id), quantity })),
@@ -233,6 +241,31 @@ export default function FlightOffer() {
                   onChange={setCount("infants")} />
               </div>
 
+              {/* Valises en soute : en retirer réduit le prix */}
+              {bagsIncluded > 0 && (
+                <div className="border-b border-line-light pb-2 mb-3">
+                  {canRemoveBags ? (
+                    <>
+                      <Stepper
+                        label={`Valises en soute (${offer.checkedBagKg} kg)`}
+                        hint={`${plural(offer.checkedBags, "valise")} incluse${offer.checkedBags > 1 ? "s" : ""} par passager (hors bébés) · −${money(offer.bagRefund)} par valise retirée`}
+                        value={bagsKept} min={0} max={bagsIncluded}
+                        onChange={(kept) => setRemovedBags(bagsIncluded - kept)}
+                      />
+                      {freedKilos > 0 && (
+                        <p className="text-xs text-muted pb-1">
+                          {formatKg(freedKilos)} libérés : cette place en soute revient à MoveColis.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-sm py-2">
+                      <b>Valises en soute :</b> {bagsIncluded} × {offer.checkedBagKg} kg incluses
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Options définies par l'admin */}
               {config.options.length > 0 && (
                 <div className="border-b border-line-light pb-2 mb-3">
@@ -265,7 +298,10 @@ export default function FlightOffer() {
                     <span className="min-w-0">
                       {line.label} <span className="text-muted">{line.detail}</span>
                     </span>
-                    <span className="shrink-0">{money(line.amount)}</span>
+                    {/* Réduction (valises retirées) en vert */}
+                    <span className={`shrink-0 ${line.amount < 0 ? "text-success font-bold" : ""}`}>
+                      {line.amount < 0 ? `−${money(-line.amount)}` : money(line.amount)}
+                    </span>
                   </div>
                 ))}
                 <div className="flex justify-between text-[17px] font-extrabold border-t border-line-light pt-3 mt-1.5">
@@ -284,6 +320,10 @@ export default function FlightOffer() {
                 <input value={form.phone} onChange={set("phone", "clientPhone")} type="tel" required
                   autoComplete="tel" placeholder="+225 07 00 00 00 00" className={inputClass} />
               </Field>
+              <Field label="Adresse e-mail" error={errors.clientEmail} hint="Votre billet et votre reçu y seront envoyés.">
+                <input value={form.email} onChange={set("email", "clientEmail")} type="email" required
+                  autoComplete="email" placeholder="Ex. awa.kone@gmail.com" className={inputClass} />
+              </Field>
               <Field label="Précisions (facultatif)" error={errors.note}>
                 <textarea value={form.note} onChange={set("note", "note")} rows={2} maxLength={500}
                   placeholder="Ex. noms des passagers, préférence de siège…" className={inputClass} />
@@ -299,7 +339,7 @@ export default function FlightOffer() {
                 <Info size={15} className="shrink-0 mt-0.5" />
                 <span>
                   Rien à payer maintenant. L'équipe MoveColis confirme le prix et le mode de paiement dans la messagerie,
-                  puis vous envoie votre billet.
+                  puis vous envoie votre billet et votre reçu par e-mail.
                 </span>
               </p>
               <p className="text-xs text-muted text-center mt-2">

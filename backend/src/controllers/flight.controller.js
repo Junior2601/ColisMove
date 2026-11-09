@@ -62,6 +62,18 @@ export async function listOrders(req, res) {
   res.json(await flightOrderService.listOrders(req.valid.query));
 }
 
+export async function sendTicket(req, res) {
+  res.json(await flightOrderService.sendTicket(req.valid.params.id, req.valid.body, { actorId: req.user.id }));
+}
+
+export async function listFreedKilos(req, res) {
+  res.json(await flightOrderService.listFreedKilos(req.valid.query));
+}
+
+export async function getFreedKilos(req, res) {
+  res.json(await flightOrderService.getFreedKilos(req.valid.params.id));
+}
+
 export async function updateOrderStatus(req, res) {
   const { status, note } = req.valid.body;
   res.json(

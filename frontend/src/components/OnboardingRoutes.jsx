@@ -134,13 +134,15 @@ export default function OnboardingRoutes({ onDone, onLater }) {
 
       <div className="flex flex-col gap-2 mt-4">
         <Toggle checked={routeAlerts} onChange={setRouteAlerts}>
-          M'alerter quand un voyageur part sur ces trajets, et me rappeler les départs proches
+          Me prévenir des nouveaux kilos publiés (en priorité sur ces trajets) et me rappeler les départs proches
         </Toggle>
         <Toggle checked={campaigns} onChange={setCampaigns}>
           Recevoir les bons plans des périodes fortes (fêtes, Tabaski, rentrée…)
         </Toggle>
       </div>
-      <p className="text-xs text-muted mt-2">Au plus 1 notification par jour, jamais la nuit. Modifiable à tout moment dans votre profil.</p>
+      <p className="text-xs text-muted mt-2">
+        Jamais la nuit ; rappels et bons plans : au plus 1 par jour. Modifiable à tout moment dans votre profil.
+      </p>
 
       {error && <ErrorState message={error} />}
 

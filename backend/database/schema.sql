@@ -427,12 +427,12 @@ CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
 
 -- =========================================================
---  Billets d'avion (identique à migrations/006_flights.sql)
+--  Billets d'avion (identique à migrations/006_flights.sql + 007_flights_exact_prices_bags_ticket.sql)
 -- =========================================================
 
 -- ---------------------------------------------------------
--- Règles de prix fixées par l'admin (une seule ligne, id = 1)
--- Prix adulte = prix Aviasales × taux de change × (1 + marge %) + frais de service, arrondi au supérieur
+-- Règles des billets fixées par l'admin (une seule ligne, id = 1)
+-- Prix adulte = prix Aviasales converti dans la devise affichée (sans marge ni frais)
 -- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS flight_settings (
   id                         SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -440,17 +440,16 @@ CREATE TABLE IF NOT EXISTS flight_settings (
   source_currency            VARCHAR(3)    NOT NULL DEFAULT 'EUR' CHECK (source_currency IN ('RUB', 'EUR', 'USD')), -- devise demandée à Aviasales
   currency                   VARCHAR(3)    NOT NULL DEFAULT 'XOF' CHECK (currency ~ '^[A-Z]{3}$'),                 -- devise affichée aux clients
   exchange_rate              NUMERIC(14,6) NOT NULL DEFAULT 655.957 CHECK (exchange_rate > 0),  -- 1 source_currency = x currency
-  markup_percent             NUMERIC(6,2)  NOT NULL DEFAULT 10 CHECK (markup_percent BETWEEN 0 AND 300),
-  service_fee                NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (service_fee >= 0),         -- par billet adulte
-  round_to                   NUMERIC(12,2) NOT NULL DEFAULT 500 CHECK (round_to >= 0),          -- 0 = pas d'arrondi
   child_percent              NUMERIC(5,2)  NOT NULL DEFAULT 75 CHECK (child_percent BETWEEN 0 AND 100),  -- 2 à 11 ans
   infant_percent             NUMERIC(5,2)  NOT NULL DEFAULT 10 CHECK (infant_percent BETWEEN 0 AND 100), -- moins de 2 ans, sur les genoux
   default_checked_bags       SMALLINT      NOT NULL DEFAULT 0 CHECK (default_checked_bags BETWEEN 0 AND 5),
   default_cabin_kg           SMALLINT      NOT NULL DEFAULT 7 CHECK (default_cabin_kg BETWEEN 0 AND 30),
   checked_bag_kg             SMALLINT      NOT NULL DEFAULT 23 CHECK (checked_bag_kg BETWEEN 1 AND 50),
+  bag_refund                 NUMERIC(12,2) NOT NULL DEFAULT 110000,  -- réduction par valise retirée par le client (0 = impossible)
   cache_hours                SMALLINT      NOT NULL DEFAULT 6 CHECK (cache_hours BETWEEN 1 AND 72),   -- fraîcheur des prix
   min_hours_before_departure SMALLINT      NOT NULL DEFAULT 48 CHECK (min_hours_before_departure BETWEEN 1 AND 720),
-  updated_at                 TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+  updated_at                 TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  CONSTRAINT chk_flight_settings_bag_refund CHECK (bag_refund >= 0)
 );
 INSERT INTO flight_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
@@ -524,8 +523,14 @@ CREATE TABLE IF NOT EXISTS flight_offers (
   gate                 VARCHAR(80),              -- agence qui vend ce prix sur Aviasales (Trip.com, Wingie…)
   fetched_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  -- Modifications de l'admin (NULL = règle générale)
-  price_override       NUMERIC(12,2) CHECK (price_override >= 0),        -- prix adulte final, devise affichée
+  -- Bagages et conditions du tarif donnés par Aviasales (lus dans le lien du billet). NULL = non précisé
+  fare_checked_bags    SMALLINT,                 -- valises en soute par passager
+  fare_bag_kg          SMALLINT,                 -- poids d'une valise
+  fare_cabin_bag       BOOLEAN,                  -- bagage cabine inclus
+  fare_changeable      BOOLEAN,                  -- billet modifiable
+  fare_refundable      BOOLEAN,                  -- billet remboursable
+
+  -- Modifications de l'admin (NULL = bagages d'Aviasales, sinon réglages). Le prix reste toujours celui d'Aviasales.
   checked_bags         SMALLINT CHECK (checked_bags BETWEEN 0 AND 5),    -- bagages en soute inclus
   cabin_kg             SMALLINT CHECK (cabin_kg BETWEEN 0 AND 30),       -- bagage cabine inclus
   info                 VARCHAR(160),                                     -- précision affichée au client
@@ -560,6 +565,7 @@ CREATE TABLE IF NOT EXISTS flight_orders (
 
   client_name          VARCHAR(160) NOT NULL,
   client_phone         VARCHAR(20)  NOT NULL,
+  client_email         VARCHAR(160),                   -- reçoit le billet (NULL : demandes d'avant l'envoi par e-mail)
   note                 VARCHAR(500),
 
   -- Vol, figé au moment de la demande
@@ -576,7 +582,7 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   transfers            SMALLINT     NOT NULL DEFAULT 0,
   duration_minutes     INT,
   checked_bags         SMALLINT     NOT NULL DEFAULT 0,
-  cabin_kg             SMALLINT     NOT NULL DEFAULT 0,
+  cabin_kg             SMALLINT     DEFAULT 0,         -- NULL : bagage cabine inclus, poids non précisé
   checked_bag_kg       SMALLINT     NOT NULL DEFAULT 23,
   link                 TEXT,
   gate                 VARCHAR(80),
@@ -589,20 +595,31 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   child_price          NUMERIC(12,2) NOT NULL,
   infant_price         NUMERIC(12,2) NOT NULL,
   options              JSONB        NOT NULL DEFAULT '[]', -- [{ id, label, unit, quantity, unitPrice, amount }]
+  -- Valises en soute : le client peut en retirer (réduction), les kilos libérés reviennent à MoveColis
+  bags_included        SMALLINT     NOT NULL DEFAULT 0,      -- incluses pour tous les passagers (hors bébés)
+  bags_kept            SMALLINT     NOT NULL DEFAULT 0,      -- gardées par le client
+  bag_refund           NUMERIC(12,2) NOT NULL DEFAULT 0,     -- réduction par valise retirée, figée
+  bag_discount         NUMERIC(14,2) NOT NULL DEFAULT 0,     -- réduction totale appliquée
+  freed_kilos          NUMERIC(6,2)  NOT NULL DEFAULT 0,     -- kilos libérés pour MoveColis
+  kilos_trip_id        INT REFERENCES trips(id) ON DELETE SET NULL, -- voyage publié avec ces kilos
   total_amount         NUMERIC(14,2) NOT NULL CHECK (total_amount >= 0),
   currency             VARCHAR(3)   NOT NULL,
 
   status               flight_order_status NOT NULL DEFAULT 'PENDING',
+  receipt_email        VARCHAR(160),                   -- dernier envoi du billet par e-mail
+  receipt_sent_at      TIMESTAMPTZ,
   created_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
   CONSTRAINT uq_flight_orders_reference UNIQUE (reference),
   CONSTRAINT chk_flight_orders_phone    CHECK (client_phone ~ '^[0-9]{8,15}$'),
   CONSTRAINT chk_flight_orders_seats    CHECK (adults + children + infants <= 9),
-  CONSTRAINT chk_flight_orders_infants  CHECK (infants <= adults)          -- un bébé par adulte
+  CONSTRAINT chk_flight_orders_infants  CHECK (infants <= adults),         -- un bébé par adulte
+  CONSTRAINT chk_flight_orders_bags     CHECK (bags_kept BETWEEN 0 AND bags_included)
 );
 CREATE INDEX IF NOT EXISTS idx_flight_orders_status  ON flight_orders(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_flight_orders_client  ON flight_orders(client_id);
+CREATE INDEX IF NOT EXISTS idx_flight_orders_freed_kilos ON flight_orders(departure_at) WHERE freed_kilos > 0;
 DROP TRIGGER IF EXISTS trg_flight_orders_updated_at ON flight_orders;
 CREATE TRIGGER trg_flight_orders_updated_at BEFORE UPDATE ON flight_orders FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
@@ -624,3 +641,6 @@ END $$;
 -- Notifications des demandes de billets
 ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'FLIGHT_ORDER';        -- (admin) nouvelle demande de billet
 ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'FLIGHT_ORDER_STATUS'; -- (client) paiement reçu, billet émis, annulation
+
+-- Notification envoyée à tous les clients à chaque nouveau voyage publié
+ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'NEW_TRIP';

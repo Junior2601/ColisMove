@@ -1,15 +1,16 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ExternalLink, MessageCircle, Search, X } from "lucide-react";
+import { Check, ExternalLink, Mail, MessageCircle, Search, X } from "lucide-react";
 import ReservationStatusModal from "../ReservationStatusModal";
+import SendTicketModal from "./SendTicketModal";
 import { Badge, ChipRow, ErrorState, FilterChip, LoadMore, Loader, Toast, btnDanger, btnOutline, btnPrimary, btnSm } from "../ui";
 import { adminApi } from "../../api/admin";
 import { usePaginated } from "../../hooks/useApi";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useFlash } from "../../hooks/useFlash";
 import { useSocketEvent } from "../../hooks/useSocketEvent";
-import { formatMoney, formatPhone, formatTripDate, formatTripTime, timeAgo } from "../../lib/format";
-import { baggageLabel, passengersLabel, stopsLabel } from "../../lib/flights";
+import { formatDateTime, formatKg, formatMoney, formatPhone, formatTripDate, formatTripTime, timeAgo } from "../../lib/format";
+import { orderBaggageLabel, passengersLabel, removedBagsLabel, stopsLabel } from "../../lib/flights";
 import { paths } from "../../lib/hashid";
 import { CANCELLABLE_FLIGHT_ORDER_STATUSES, FLIGHT_ORDER_STATUS, NEXT_FLIGHT_ORDER_STEP } from "../../lib/status";
 
@@ -46,11 +47,23 @@ function OrderCard({ order, onAction }) {
         <div>
           Client <b className="text-ink">{order.clientName}</b>
           {order.isGuest ? " (visiteur)" : ""} · {formatPhone(order.clientPhone)}
+          {order.clientEmail && ` · ${order.clientEmail}`}
         </div>
         <div>
-          {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers)} · {baggageLabel(flight)}
+          {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers)} · {orderBaggageLabel(order)}
           {order.gate && ` · prix trouvé chez ${order.gate}`}
         </div>
+        {order.bags.freedKilos > 0 && (
+          <div className="text-ink font-semibold">
+            🧳 {removedBagsLabel(order.bags.removed)} (−{formatMoney(order.bags.discount, order.currency)}) :{" "}
+            {formatKg(order.bags.freedKilos)} libérés pour MoveColis
+          </div>
+        )}
+        {order.receiptSentAt && (
+          <div className="text-success font-semibold">
+            📧 Billet envoyé à {order.receiptEmail} le {formatDateTime(order.receiptSentAt)}
+          </div>
+        )}
         <div>
           {passengersLabel(order)}
           {order.options.length > 0 &&
@@ -80,6 +93,11 @@ function OrderCard({ order, onAction }) {
           {next && (
             <button type="button" onClick={() => onAction(order, next.status)} className={`${btnPrimary} ${btnSm}`}>
               <Check size={15} /> {next.action}
+            </button>
+          )}
+          {order.status === "ISSUED" && (
+            <button type="button" onClick={() => onAction(order, "ISSUED")} className={`${btnOutline} ${btnSm}`}>
+              <Mail size={15} /> Renvoyer le billet
             </button>
           )}
           {open && (
@@ -156,7 +174,19 @@ export default function FlightOrdersAdmin() {
       )}
       <LoadMore hasMore={orders.hasMore} loading={orders.loadingMore} onClick={orders.loadMore} />
 
-      {pending && (
+      {/* « Billet émis » (ou nouvel envoi) : le billet part par e-mail */}
+      {pending?.status === "ISSUED" && (
+        <SendTicketModal
+          order={pending.order}
+          onClose={() => setPending(null)}
+          onSent={(updated) => {
+            orders.setItems((items) => items.map((o) => (o.id === updated.id ? updated : o)));
+            setPending(null);
+            showFlash(`Billet ${updated.reference} envoyé à ${updated.receiptEmail}.`);
+          }}
+        />
+      )}
+      {pending && pending.status !== "ISSUED" && (
         <ReservationStatusModal
           variant="flight"
           nextStatus={pending.status}

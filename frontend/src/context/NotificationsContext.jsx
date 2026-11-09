@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Bell, CalendarDays, Clock, Megaphone, MessageCircle, Package, Plane, Ticket, UserCheck, X } from "lucide-react";
+import { Bell, CalendarDays, Clock, Megaphone, MessageCircle, Package, PackagePlus, Plane, Ticket, UserCheck, X } from "lucide-react";
 import { notificationsApi } from "../api/notifications";
 import { useAuth } from "./AuthContext";
 import { useSocketEvent } from "../hooks/useSocketEvent";
@@ -17,6 +17,7 @@ export const NOTIFICATION_ICONS = {
   TRIP_CANCELLED: Plane,
   TRAVELER_APPROVED: UserCheck,
   TRAVELER_PENDING: UserCheck,
+  NEW_TRIP: PackagePlus, // nouveaux kilos publiés (tous les clients)
   ROUTE_ALERT: Plane, // un voyageur part sur un trajet recherché / consulté / favori
   DEPARTURE_SOON: Clock, // « Il reste 3 jours pour confier votre colis »
   WEEKLY_DIGEST: CalendarDays, // « Des voyageurs partent vers X cette semaine »
