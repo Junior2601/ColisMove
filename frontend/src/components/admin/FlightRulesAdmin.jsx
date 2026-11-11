@@ -276,7 +276,8 @@ export default function FlightRulesAdmin({ data, onSaved }) {
         <Section title="Valises retirées par le client">
           <p className="text-xs text-muted -mt-1 mb-3">
             Le client peut garder moins de valises que celles incluses : chaque valise retirée baisse le prix de son
-            billet, et ses kilos apparaissent dans l&apos;onglet « Kilos disponibles », prêts à être publiés.
+            billet, et ses kilos apparaissent dans l&apos;onglet « Kilos disponibles », prêts à être publiés. Le retrait
+            n&apos;est proposé que jusqu&apos;à 2 semaines avant le départ, pour avoir le temps de revendre ces kilos.
           </p>
           <div className="grid sm:grid-cols-2 gap-x-3">
             {numberField("bagRefund", `Réduction par valise retirée (${symbol})`, "0 = le client ne peut pas retirer de valise")}

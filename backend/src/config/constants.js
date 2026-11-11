@@ -59,6 +59,7 @@ export const FLIGHT_ORDER_NOTIFICATION_TITLES = {
 export const FLIGHT_SOURCE_CURRENCIES = ["RUB", "EUR", "USD"];
 export const FLIGHT_MAX_PASSENGERS = 9;
 export const FLIGHT_SEARCH_MONTHS_AHEAD = 11; // Aviasales ne garde pas de prix au-delà d'environ un an
+export const FLIGHT_BAG_REMOVAL_DAYS = 14; // retrait de valises (réduction) jusqu'à 2 semaines avant le départ, pas après
 
 // Variables utilisables dans le modèle de premier message
 export const TEMPLATE_VARIABLES = ["kilos", "trajet", "date", "nom", "code"];

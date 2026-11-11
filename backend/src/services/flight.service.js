@@ -10,7 +10,7 @@
 import { withTransaction } from "../config/db.js";
 import * as flightModel from "../models/flight.model.js";
 import * as aviasales from "./aviasales.service.js";
-import { FLIGHT_MAX_PASSENGERS, FLIGHT_SEARCH_MONTHS_AHEAD } from "../config/constants.js";
+import { FLIGHT_BAG_REMOVAL_DAYS, FLIGHT_MAX_PASSENGERS, FLIGHT_SEARCH_MONTHS_AHEAD } from "../config/constants.js";
 import { badRequest, conflict, notFound } from "../utils/AppError.js";
 
 const round2 = (amount) => Math.round(amount * 100) / 100;
@@ -42,6 +42,19 @@ export function priceOffer(offer, settings) {
 }
 
 /**
+ * Retrait de valises : possible seulement jusqu'à FLIGHT_BAG_REMOVAL_DAYS jours avant le départ,
+ * pour laisser à MoveColis le temps de trouver des clients pour les kilos libérés.
+ * Les jours se comptent en dates locales de la ville de départ (comme la date affichée au client).
+ */
+export function canRemoveBags({ departureAt, departureUtc }) {
+  const lastDay = new Date(`${departureAt.slice(0, 10)}T00:00:00Z`);
+  lastDay.setUTCDate(lastDay.getUTCDate() - FLIGHT_BAG_REMOVAL_DAYS);
+  const utcOffset = Date.parse(`${departureAt.slice(0, 16)}:00Z`) - new Date(departureUtc).getTime(); // fuseau de la ville de départ
+  const localToday = new Date(Date.now() + utcOffset).toISOString().slice(0, 10);
+  return localToday <= lastDay.toISOString().slice(0, 10);
+}
+
+/**
  * Valises en soute d'une demande. Bébés exclus : seuls adultes et enfants ont des valises.
  * bagsKept : valises gardées par le client (undefined = toutes celles incluses).
  * La réduction ne dépasse jamais le prix des billets.
@@ -53,6 +66,11 @@ export function computeBags(offer, { adults, children }, bagsKept, fare) {
     throw badRequest(`Valises en soute : entre 0 et ${included} pour ${adults + children} passager(s).`);
   }
   if (kept < included && !(offer.bagRefund > 0)) throw badRequest("Ce billet ne permet pas de retirer de valise.");
+  if (kept < included && !offer.bagRemovalOpen) {
+    throw badRequest(
+      "Retirer une valise n'est plus possible : le départ est dans moins de 2 semaines. Gardez toutes les valises incluses."
+    );
+  }
   const removed = included - kept;
   return {
     included,
@@ -192,6 +210,7 @@ function toPublicOffer(offer, settings, { cities, airlines, stops }) {
     durationMinutes: offer.durationMinutes,
     ...baggageOf(offer, settings), // checkedBags (par passager, hors bébés), checkedBagKg, cabinKg, baggageSource
     bagRefund: settings.bagRefund, // réduction par valise retirée (0 = impossible)
+    bagRemovalOpen: canRemoveBags(offer), // false si le départ est dans moins de 2 semaines
     info: offer.info,
     ...priceOffer(offer, settings),
     currency: settings.currency,

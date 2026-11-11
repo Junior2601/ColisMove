@@ -109,9 +109,10 @@ export default function FlightOffer() {
   const { offer, config } = data;
   const money = (amount) => formatMoney(amount, offer.currency);
   const seats = passengers.adults + passengers.children + passengers.infants;
-  // Valises en soute : incluses pour tous les passagers (hors bébés), le client peut en retirer si l'admin l'autorise
+  // Valises en soute : incluses pour tous les passagers (hors bébés), le client peut en retirer si l'admin l'autorise,
+  // et seulement si le départ est dans 2 semaines ou plus (le temps de revendre les kilos libérés)
   const bagsIncluded = includedBags(offer, passengers);
-  const canRemoveBags = offer.bagRefund > 0;
+  const canRemoveBags = offer.bagRefund > 0 && offer.bagRemovalOpen;
   const bagsKept = bagsIncluded - (canRemoveBags ? Math.min(removedBags, bagsIncluded) : 0);
   const { lines, total, freedKilos } = computeTotal(offer, passengers, quantities, config.options, money, bagsKept);
   const blocker = orderBlocker(user);
@@ -264,6 +265,16 @@ export default function FlightOffer() {
                   ) : (
                     <div className="text-sm py-2">
                       <b>Valises en soute :</b> {bagsIncluded} × {offer.checkedBagKg} kg incluses
+                      {/* Réduction proposée, mais départ dans moins de 2 semaines : on explique pourquoi */}
+                      {offer.bagRefund > 0 && (
+                        <p className="text-xs text-muted mt-1 flex gap-1.5 items-start">
+                          <Info size={14} className="shrink-0 mt-px" />
+                          <span>
+                            Retirer une valise (−{money(offer.bagRefund)} par valise) n&apos;est possible que jusqu&apos;à
+                            2 semaines avant le départ.
+                          </span>
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
