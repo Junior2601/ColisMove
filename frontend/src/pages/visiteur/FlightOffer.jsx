@@ -3,15 +3,20 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Info, MessageCircle, Minus, Plus } from "lucide-react";
 import Layout from "../../components/Layout";
 import { AirlineLogo, FlightLine } from "../../components/flights/FlightOfferCard";
+import { PassengerFields } from "../../components/flights/Passengers";
+import PhoneField from "../../components/PhoneField";
 import { ErrorState, Field, Loader, Notice, btnPrimary, inputClass } from "../../components/ui";
 import { flightsApi } from "../../api/flights";
 import { errorMessage, fieldErrors } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { useApi } from "../../hooks/useApi";
+import { loadCountries } from "../../lib/countries";
 import { saveGuestAccess } from "../../lib/guestAccess";
 import { decodeId, paths } from "../../lib/hashid";
 import { formatKg, formatMoney, formatTripDate, formatTripTime, plural } from "../../lib/format";
-import { baggageLabel, computeTotal, formatDuration, includedBags, stopsDetail } from "../../lib/flights";
+import {
+  EMPTY_PASSENGER, baggageLabel, computeTotal, formatDuration, includedBags, passengerSlots, stopsDetail,
+} from "../../lib/flights";
 
 // Ligne clé/valeur du récapitulatif
 function Row({ k, v }) {
@@ -66,7 +71,12 @@ export default function FlightOffer() {
     [offerId]
   );
 
+  // Tous les pays (nationalité des passagers, indicatif du téléphone)
+  const { data: countries, error: countriesError, reload: reloadCountries } = useApi(loadCountries, []);
+
   const [passengers, setPassengers] = useState({ adults: 1, children: 0, infants: 0 });
+  // Infos de chaque passager par type : gardées si on change le nombre d'adultes, d'enfants ou de bébés
+  const [travellers, setTravellers] = useState({ ADULT: [], CHILD: [], INFANT: [] });
   const [quantities, setQuantities] = useState({}); // { [optionId]: quantité }
   const [removedBags, setRemovedBags] = useState(0); // valises en soute retirées (réduction sur le billet)
   const [form, setForm] = useState({ name: "", phone: "", email: "", note: "" });
@@ -120,10 +130,27 @@ export default function FlightOffer() {
   // Retour à la recherche de ce trajet et de ce mois (même depuis un lien partagé)
   const searchLink = `/?onglet=billets&origine=${offer.origin.code}&destination=${offer.destination.code}&mois=${offer.departureAt.slice(0, 7)}`;
 
+  // Un bloc par passager, dans l'ordre : adultes, enfants, bébés
+  const passengerList = passengerSlots(passengers).map(([type, slot]) => ({
+    ...EMPTY_PASSENGER,
+    ...travellers[type][slot],
+    type,
+    slot,
+  }));
+
   const setCount = (key) => (value) => setPassengers((p) => ({ ...p, [key]: value }));
-  const set = (key, apiField) => (e) => {
-    setForm((f) => ({ ...f, [key]: e.target.value }));
+  const setValue = (key, apiField) => (value) => {
+    setForm((f) => ({ ...f, [key]: value }));
     setErrors((errs) => ({ ...errs, [apiField]: undefined }));
+  };
+  const set = (key, apiField) => (e) => setValue(key, apiField)(e.target.value);
+  const setTraveller = (index, { type, slot }) => (field, value) => {
+    setTravellers((t) => {
+      const list = [...t[type]];
+      list[slot] = { ...EMPTY_PASSENGER, ...list[slot], [field]: value };
+      return { ...t, [type]: list };
+    });
+    setErrors((errs) => ({ ...errs, [`passengers.${index}.${field}`]: undefined }));
   };
 
   async function handleOrder(e) {
@@ -143,6 +170,9 @@ export default function FlightOffer() {
         clientEmail: form.email.trim(),
         note: form.note.trim() || null,
         ...passengers,
+        passengers: passengerList.map(({ type, fullName, gender, birthDate, nationality, passportNumber }) => ({
+          type, fullName: fullName.trim(), gender, birthDate, nationality, passportNumber: passportNumber.trim(),
+        })),
         checkedBags: bagsKept,
         options: Object.entries(quantities)
           .filter(([, quantity]) => quantity > 0)
@@ -166,7 +196,9 @@ export default function FlightOffer() {
     } catch (err) {
       const byField = fieldErrors(err);
       setErrors(byField);
+      // Erreur sur un champ : on la signale et on y amène le client (formulaire long avec plusieurs passagers)
       setFormError(Object.keys(byField).length ? "Vérifiez les champs signalés en rouge." : errorMessage(err));
+      requestAnimationFrame(() => document.querySelector('form [role="alert"]')?.scrollIntoView({ behavior: "smooth", block: "center" }));
       if (err.status === 409 || err.status === 404) reload(); // prix ou disponibilité changés : on rafraîchit
       setSubmitting(false);
     }
@@ -231,6 +263,9 @@ export default function FlightOffer() {
 
           {blocker ? (
             <Notice tone="warn">{blocker}</Notice>
+          ) : !countries ? (
+            // La liste des pays sert au formulaire (nationalité, indicatif)
+            countriesError ? <ErrorState error={countriesError} onRetry={reloadCountries} /> : <Loader />
           ) : (
             <form onSubmit={handleOrder}>
               {/* Passagers */}
@@ -324,15 +359,24 @@ export default function FlightOffer() {
                 </div>
               </div>
 
-              {/* Coordonnées */}
-              <Field label="Nom complet" error={errors.clientName}>
+              {/* Passagers : un bloc chacun, comme sur le passeport */}
+              <h3 className="text-[15px] font-extrabold mb-0.5">Passagers</h3>
+              <p className="text-xs text-muted mb-3">Les informations de chaque passeport, pour émettre les billets.</p>
+              {passengerList.map((passenger, index) => (
+                <PassengerFields key={`${passenger.type}-${passenger.slot}`} index={index} passenger={passenger}
+                  departureAt={offer.departureAt} countries={countries} errors={errors}
+                  onChange={setTraveller(index, passenger)} />
+              ))}
+
+              {/* Coordonnées de la personne qui fait la demande */}
+              <h3 className="text-[15px] font-extrabold mt-4 mb-3">Vos coordonnées</h3>
+              <Field label="Votre nom complet" error={errors.clientName}>
                 <input ref={nameRef} value={form.name} onChange={set("name", "clientName")} required
                   autoComplete="name" placeholder="Ex. Koné Awa" className={inputClass} />
               </Field>
               <Field label="Numéro de téléphone (WhatsApp)" error={errors.clientPhone}
-                hint="Avec l'indicatif pays. L'équipe MoveColis vous répond dans la messagerie.">
-                <input value={form.phone} onChange={set("phone", "clientPhone")} type="tel" required
-                  autoComplete="tel" placeholder="+225 07 00 00 00 00" className={inputClass} />
+                hint="Choisissez l'indicatif du pays. L'équipe MoveColis vous répond dans la messagerie.">
+                <PhoneField value={form.phone} onChange={setValue("phone", "clientPhone")} required />
               </Field>
               <Field label="Adresse e-mail" error={errors.clientEmail} hint="Votre billet et votre reçu y seront envoyés.">
                 <input value={form.email} onChange={set("email", "clientEmail")} type="email" required
@@ -340,7 +384,7 @@ export default function FlightOffer() {
               </Field>
               <Field label="Précisions (facultatif)" error={errors.note}>
                 <textarea value={form.note} onChange={set("note", "note")} rows={2} maxLength={500}
-                  placeholder="Ex. noms des passagers, préférence de siège…" className={inputClass} />
+                  placeholder="Ex. préférence de siège, repas…" className={inputClass} />
               </Field>
 
               {formError && <Notice tone="danger">{formError}</Notice>}

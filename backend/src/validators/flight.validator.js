@@ -24,6 +24,30 @@ export const searchFlightsQuery = z.object({
   direct: queryBoolean, // vols directs uniquement
 });
 
+// "1990-03-12" : date réelle du calendrier, après 1900
+const birthDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date de naissance invalide.")
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value && value >= "1900-01-01";
+  }, "Date de naissance invalide.");
+
+// Passager, tel qu'écrit sur son passeport (le type doit correspondre au nombre d'adultes, enfants et bébés)
+const passenger = z.object({
+  type: z.enum(["ADULT", "CHILD", "INFANT"]),
+  fullName: z.string().trim().min(2, "Nom et prénoms du passager, comme sur le passeport.").max(120),
+  gender: z.enum(["M", "F"], { errorMap: () => ({ message: "Choisissez M ou F." }) }),
+  birthDate,
+  nationality: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Choisissez un pays dans la liste."),
+  passportNumber: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .transform((value) => value.replace(/[\s-]/g, ""))
+    .pipe(z.string().regex(/^[A-Z0-9]{5,20}$/, "Numéro de passeport : 5 à 20 lettres ou chiffres.")),
+});
+
 export const createFlightOrderBody = z.object({
   offerId: z.coerce.number().int().positive().max(2147483647),
   clientName: z.string().trim().min(2, "Indiquez votre nom complet.").max(160),
@@ -33,6 +57,7 @@ export const createFlightOrderBody = z.object({
   adults: intBetween(1, FLIGHT_MAX_PASSENGERS),
   children: intBetween(0, FLIGHT_MAX_PASSENGERS - 1).default(0),
   infants: intBetween(0, FLIGHT_MAX_PASSENGERS).default(0),
+  passengers: z.array(passenger).min(1, "Renseignez chaque passager.").max(FLIGHT_MAX_PASSENGERS),
   options: z
     .array(z.object({ id: z.coerce.number().int().positive(), quantity: intBetween(0, 20) }))
     .max(30)

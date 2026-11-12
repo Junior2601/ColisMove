@@ -569,6 +569,8 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   client_phone         VARCHAR(20)  NOT NULL,
   client_email         VARCHAR(160),                   -- reçoit le billet (NULL : demandes d'avant l'envoi par e-mail)
   note                 VARCHAR(500),
+  -- Passagers, comme sur leur passeport : [{ type, fullName, gender, birthDate, nationality, nationalityName, passportNumber }]
+  passengers           JSONB        NOT NULL DEFAULT '[]',
 
   -- Vol, figé au moment de la demande
   origin               CHAR(3)      NOT NULL,

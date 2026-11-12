@@ -28,6 +28,8 @@ export function toFlightOrder(row) {
     clientPhone: row.client_phone,
     clientEmail: row.client_email,
     note: row.note,
+    // [{ type, fullName, gender, birthDate, nationality, nationalityName, passportNumber }] ([] : demande ancienne)
+    passengers: row.passengers ?? [],
     flight: {
       origin: { code: row.origin, name: row.origin_city },
       destination: { code: row.destination, name: row.destination_city },
@@ -84,10 +86,10 @@ export async function create(order, db = pool) {
        origin, destination, origin_city, destination_city, origin_airport, destination_airport, departure_at,
        airline, airline_name, flight_number, transfers, duration_minutes, checked_bags, cabin_kg, checked_bag_kg, link, gate,
        adults, children, infants, adult_price, child_price, infant_price, options, total_amount, currency,
-       client_email, bags_included, bags_kept, bag_refund, bag_discount, freed_kilos, arrival_at, stops)
+       client_email, bags_included, bags_kept, bag_refund, bag_discount, freed_kilos, arrival_at, stops, passengers)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
              $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31::jsonb, $32, $33,
-             $34, $35, $36, $37, $38, $39, $40, $41::jsonb)
+             $34, $35, $36, $37, $38, $39, $40, $41::jsonb, $42::jsonb)
      ON CONFLICT (reference) DO NOTHING
      RETURNING id`,
     [
@@ -100,7 +102,7 @@ export async function create(order, db = pool) {
       order.adults, order.children, order.infants, order.adultPrice, order.childPrice, order.infantPrice,
       JSON.stringify(order.options), order.totalAmount, order.currency,
       order.clientEmail, order.bags.included, order.bags.kept, order.bags.refund, order.bags.discount, order.bags.freedKilos,
-      order.arrivalAt ?? null, JSON.stringify(order.stops ?? []),
+      order.arrivalAt ?? null, JSON.stringify(order.stops ?? []), JSON.stringify(order.passengers ?? []),
     ]
   );
   return rows[0]?.id ?? null;
@@ -119,7 +121,7 @@ export async function findByIdForUpdate(id, db = pool) {
 /**
  * Liste admin. Filtres optionnels :
  *  - status : tableau de statuts, ex. ["PENDING", "PAID"]
- *  - q      : référence, nom du client ou ville
+ *  - q      : référence, nom du client, ville, e-mail, nom ou passeport d'un passager
  */
 export async function list({ status, q, limit, offset }, db = pool) {
   const { rows } = await db.query(
@@ -127,7 +129,9 @@ export async function list({ status, q, limit, offset }, db = pool) {
      ${FROM_JOINS}
      WHERE ($1::flight_order_status[] IS NULL OR f.status = ANY($1::flight_order_status[]))
        AND ($2::text IS NULL OR f.reference ILIKE $2 OR f.client_name ILIKE $2
-            OR f.origin_city ILIKE $2 OR f.destination_city ILIKE $2 OR f.client_email ILIKE $2)
+            OR f.origin_city ILIKE $2 OR f.destination_city ILIKE $2 OR f.client_email ILIKE $2
+            OR EXISTS (SELECT 1 FROM jsonb_array_elements(f.passengers) p
+                       WHERE p->>'fullName' ILIKE $2 OR p->>'passportNumber' ILIKE $2))
      ORDER BY f.created_at DESC
      LIMIT $3 OFFSET $4`,
     [status ?? null, likePattern(q), limit, offset]

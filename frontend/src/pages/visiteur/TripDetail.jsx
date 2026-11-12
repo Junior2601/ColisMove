@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Minus, Plus, MessageCircle } from "lucide-react";
 import Layout from "../../components/Layout";
 import { RouteLine } from "../../components/TripCard";
+import PhoneField from "../../components/PhoneField";
 import { ErrorState, Field, Loader, Notice, btnPrimary, inputClass } from "../../components/ui";
 import { publicApi } from "../../api/public";
 import { errorMessage, fieldErrors } from "../../api/client";
@@ -48,31 +49,28 @@ export default function TripDetail() {
   );
 
   const [form, setForm] = useState({ name: "", phone: "", desc: "" });
-  const [kg, setKg] = useState(5);
+  const [kgWanted, setKgWanted] = useState(5); // borné aux kilos restants à l'affichage (voir kg plus bas)
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const nameRef = useRef(null);
 
-  const set = (k, apiField) => (e) => {
-    setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setValue = (k, apiField) => (value) => {
+    setForm((f) => ({ ...f, [k]: value }));
     setErrors((errs) => ({ ...errs, [apiField]: undefined }));
   };
+  const set = (k, apiField) => (e) => setValue(k, apiField)(e.target.value);
 
-  // Client connecté : nom et téléphone pré-remplis depuis son compte
-  useEffect(() => {
-    if (user?.role !== "CLIENT") return;
+  // Client connecté : nom et téléphone pré-remplis depuis son compte (une fois le compte chargé)
+  const [prefilledFor, setPrefilledFor] = useState(null);
+  if (user?.role === "CLIENT" && prefilledFor !== user.id) {
+    setPrefilledFor(user.id);
     setForm((f) => ({
       ...f,
       name: f.name || `${user.firstName} ${user.lastName}`,
       phone: f.phone || `+${user.phone}`,
     }));
-  }, [user]);
-
-  // La quantité ne dépasse jamais les kilos restants (même après un rafraîchissement)
-  useEffect(() => {
-    if (trip) setKg((k) => Math.min(Math.max(k, 1), trip.kilosAvailable));
-  }, [trip]);
+  }
 
   if (loading && !trip) {
     return (
@@ -97,10 +95,12 @@ export default function TripDetail() {
     );
   }
 
+  // Garde toujours kg entre 1 et le stock disponible (même si des kilos sont partis depuis le choix)
+  const clamp = (v) => Math.min(trip.kilosAvailable, Math.max(1, Number.isFinite(v) ? v : 1));
+  const kg = clamp(kgWanted);
+  const setKg = (v) => setKgWanted(clamp(v));
   const total = kg * trip.pricePerKilo;
   const blocker = bookingBlocker(trip, user);
-  // Garde toujours kg entre 1 et le stock disponible
-  const clamp = (v) => Math.min(trip.kilosAvailable, Math.max(1, Number.isFinite(v) ? v : 1));
 
   async function handleReserve(e) {
     e.preventDefault();
@@ -200,10 +200,9 @@ export default function TripDetail() {
               <Field
                 label="Numéro de téléphone (WhatsApp)"
                 error={errors.clientPhone}
-                hint="Avec l'indicatif pays. Le propriétaire du voyage vous répondra dans la messagerie MoveColis."
+                hint="Choisissez l'indicatif du pays. Le propriétaire du voyage vous répondra dans la messagerie MoveColis."
               >
-                <input value={form.phone} onChange={set("phone", "clientPhone")} type="tel" required
-                  autoComplete="tel" placeholder="+225 07 00 00 00 00" className={inputClass} />
+                <PhoneField value={form.phone} onChange={setValue("phone", "clientPhone")} required />
               </Field>
 
               <Field label="Description du colis" error={errors.parcelDescription}>
@@ -214,15 +213,15 @@ export default function TripDetail() {
               {/* Compteur de kilos */}
               <Field label="Nombre de kilos" error={errors.kilos}>
                 <div className="flex items-center gap-3.5">
-                  <button type="button" aria-label="Réduire" onClick={() => setKg((v) => clamp(v - 1))}
+                  <button type="button" aria-label="Réduire" onClick={() => setKg(kg - 1)}
                     className="w-9 h-9 rounded-full border border-line bg-white flex items-center justify-center hover:border-ink transition">
                     <Minus size={17} />
                   </button>
                   <input type="number" value={kg} min={1} max={trip.kilosAvailable}
-                    onChange={(e) => setKg(clamp(parseFloat(e.target.value)))}
+                    onChange={(e) => setKg(parseFloat(e.target.value))}
                     aria-label="Nombre de kilos"
                     className="w-16 text-center text-lg font-extrabold outline-none" />
-                  <button type="button" aria-label="Augmenter" onClick={() => setKg((v) => clamp(v + 1))}
+                  <button type="button" aria-label="Augmenter" onClick={() => setKg(kg + 1)}
                     className="w-9 h-9 rounded-full border border-line bg-white flex items-center justify-center hover:border-ink transition">
                     <Plus size={17} />
                   </button>

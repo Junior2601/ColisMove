@@ -6,6 +6,7 @@ import {
 import Layout from "../components/Layout";
 import AppSettings from "../components/AppSettings";
 import PasswordInput from "../components/PasswordInput";
+import PhoneField from "../components/PhoneField";
 import MarketingSettings from "../components/MarketingSettings";
 import { Badge, Field, Notice, Toast, inputClass, btnPrimary, btnOutline } from "../components/ui";
 import { authApi } from "../api/auth";
@@ -50,10 +51,11 @@ function ProfileForm({ user, onSaved }) {
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const set = (k) => (e) => {
-    setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setValue = (k) => (value) => {
+    setForm((f) => ({ ...f, [k]: value }));
     setErrors((errs) => ({ ...errs, [k]: undefined }));
   };
+  const set = (k) => (e) => setValue(k)(e.target.value);
 
   // N'envoie que les champs réellement modifiés
   function buildPatch() {
@@ -103,9 +105,9 @@ function ProfileForm({ user, onSaved }) {
       <Field
         label="Numéro de téléphone (WhatsApp)"
         error={errors.phone}
-        hint="Avec l'indicatif pays. Il sert aussi d'identifiant de connexion."
+        hint="Choisissez l'indicatif du pays. Ce numéro sert aussi d'identifiant de connexion."
       >
-        <input value={form.phone} onChange={set("phone")} type="tel" required autoComplete="tel" className={inputClass} />
+        <PhoneField value={form.phone} onChange={setValue("phone")} required />
       </Field>
       {isTraveler && (
         <Field label="Ville de résidence" error={errors.city}>

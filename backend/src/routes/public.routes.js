@@ -23,6 +23,9 @@ router.post("/reservations", reservationLimiter, validate({ body: createReservat
 // Tracking.jsx
 router.get("/tracking/:code", validate({ params: trackingParam }), publicController.getTracking);
 
+// Tous les pays : nom, indicatif téléphonique, drapeau (FlightOffer.jsx : nationalité des passagers, téléphone)
+router.get("/countries", publicController.listCountries);
+
 // Billets d'avion (Home.jsx, onglet « Billets d'avion » ; FlightOffer.jsx)
 router.get("/flights/config", flight.config);
 router.get("/flights/places", flightSearchLimiter, validate({ query: placesQuery }), flight.places);

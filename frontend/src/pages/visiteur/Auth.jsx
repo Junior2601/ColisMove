@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { CircleCheck, Package, Plane } from "lucide-react";
 import Layout from "../../components/Layout";
 import PasswordInput from "../../components/PasswordInput";
+import PhoneField from "../../components/PhoneField";
 import { Field, inputClass, btnPrimary, btnOutline, Notice } from "../../components/ui";
 import { homePathFor, useAuth } from "../../context/AuthContext";
 import { errorMessage, fieldErrors } from "../../api/client";
@@ -116,11 +117,11 @@ export function Register() {
   const isTraveler = role === "voyageur";
 
   // Modifier un champ efface son message d'erreur
-  const set = (k) => (e) => {
-    const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+  const setValue = (k) => (value) => {
     setForm((f) => ({ ...f, [k]: value }));
     setErrors((errs) => ({ ...errs, [k]: undefined }));
   };
+  const set = (k) => (e) => setValue(k)(e.target.type === "checkbox" ? e.target.checked : e.target.value);
 
   // Déjà connecté → directement vers son espace
   if (user && !submitting) return <Navigate to={homePathFor(user)} replace />;
@@ -235,11 +236,10 @@ export function Register() {
             label="Numéro de téléphone (WhatsApp)"
             error={errors.phone}
             hint={isTraveler
-              ? "Avec l'indicatif pays. L'administrateur l'utilisera pour vérifier votre profil."
-              : "Avec l'indicatif pays. Vous pourrez aussi vous connecter avec ce numéro."}
+              ? "Choisissez l'indicatif du pays. L'administrateur utilisera ce numéro pour vérifier votre profil."
+              : "Choisissez l'indicatif du pays. Vous pourrez aussi vous connecter avec ce numéro."}
           >
-            <input value={form.phone} onChange={set("phone")} type="tel" required
-              autoComplete="tel" placeholder="+225 07 00 00 00 00" className={inputClass} />
+            <PhoneField value={form.phone} onChange={setValue("phone")} required />
           </Field>
 
           {/* Champ ville — uniquement pour le voyageur */}

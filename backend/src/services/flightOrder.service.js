@@ -13,6 +13,7 @@ import * as messageModel from "../models/message.model.js";
 import * as userModel from "../models/user.model.js";
 import * as flightService from "./flight.service.js";
 import * as aviasales from "./aviasales.service.js";
+import * as countriesService from "./countries.service.js";
 import * as notificationService from "./notification.service.js";
 import * as mailService from "./mail.service.js";
 import * as realtime from "../socket/realtime.js";
@@ -24,7 +25,7 @@ import {
   FLIGHT_ORDER_TRANSITIONS,
 } from "../config/constants.js";
 import { paths } from "../utils/hashid.js";
-import { formatLocalDate } from "../utils/date.js";
+import { formatLocalDate, todayIso } from "../utils/date.js";
 import { formatKilos, formatMoney } from "../utils/money.js";
 import { generateTrackingCode } from "../utils/trackingCode.js";
 import { generateToken, hashToken } from "../utils/token.js";
@@ -62,6 +63,56 @@ export function passengersText({ adults, children, infants }) {
 // "1 valise retirée", "2 valises retirées"
 const removedBagsText = (count) => `${count} valise${count > 1 ? "s" : ""} retirée${count > 1 ? "s" : ""}`;
 
+// "Koné Awa, Koné Ali" (nom du client pour une demande d'avant la saisie des passagers)
+const passengerNames = (order) =>
+  order.passengers?.length ? order.passengers.map((p) => p.fullName).join(", ") : order.clientName;
+
+/* ---------- Passagers : nom, genre, date de naissance, nationalité, passeport ---------- */
+
+const PASSENGER_COUNTS = { ADULT: "adults", CHILD: "children", INFANT: "infants" };
+
+// Âge le jour du vol : adulte 12 ans et plus, enfant 2 à 11 ans, bébé moins de 2 ans
+const AGE_RULES = {
+  ADULT: { fits: (age) => age >= 12, message: "Un adulte a 12 ans ou plus le jour du vol." },
+  CHILD: { fits: (age) => age >= 2 && age <= 11, message: "Un enfant a de 2 à 11 ans le jour du vol." },
+  INFANT: { fits: (age) => age < 2, message: "Un bébé a moins de 2 ans le jour du vol." },
+};
+
+// Âge en années révolues à une date ("1990-03-12", "2026-12-15" → 36)
+function ageOn(birthDate, day) {
+  const [birthYear, birthMonth, birthDay] = birthDate.split("-").map(Number);
+  const [year, month, dayOfMonth] = day.split("-").map(Number);
+  return year - birthYear - (month < birthMonth || (month === birthMonth && dayOfMonth < birthDay) ? 1 : 0);
+}
+
+/**
+ * Vérifie les passagers saisis (un par adulte, enfant et bébé, âge cohérent le jour du vol, pays connu)
+ * et ajoute le nom du pays. Les erreurs sont rattachées au champ du passager (passengers.0.birthDate…).
+ */
+async function checkPassengers(list, counts, departureAt) {
+  for (const [type, key] of Object.entries(PASSENGER_COUNTS)) {
+    if (list.filter((p) => p.type === type).length !== counts[key]) {
+      throw badRequest("Renseignez chaque passager : nom, genre, date de naissance, pays et passeport.");
+    }
+  }
+  const flightDay = departureAt.slice(0, 10);
+  const today = todayIso();
+  const errors = [];
+  const passengers = [];
+  for (const [index, p] of list.entries()) {
+    const field = (name) => `passengers.${index}.${name}`;
+    if (p.birthDate > today) errors.push({ field: field("birthDate"), message: "Date de naissance dans le futur." });
+    else if (!AGE_RULES[p.type].fits(ageOn(p.birthDate, flightDay))) {
+      errors.push({ field: field("birthDate"), message: AGE_RULES[p.type].message });
+    }
+    const country = await countriesService.countryByCode(p.nationality);
+    if (!country) errors.push({ field: field("nationality"), message: "Choisissez un pays dans la liste." });
+    passengers.push({ ...p, nationalityName: country?.name ?? p.nationality });
+  }
+  if (errors.length) throw badRequest("Vérifiez les informations des passagers.", errors);
+  return passengers;
+}
+
 // "Cabine 7 kg · 1 valise en soute de 23 kg (1 retirée)"
 export function bagsText({ flight, bags }) {
   const cabin =
@@ -96,7 +147,7 @@ function firstMessage(order, offer) {
       stopsText(offer.transfers, offer.stops),
       formatDuration(offer.durationMinutes),
     ].filter(Boolean).join(" · "),
-    `Passagers : ${passengersText(order)}`,
+    `Passagers : ${passengersText(order)} (${passengerNames(order)})`,
   ];
   if (order.bags.included > 0) {
     const removed = order.bags.removed
@@ -126,6 +177,7 @@ export async function createOrder(input, { user = null } = {}) {
   if (passengers.infants > passengers.adults) throw badRequest("Un bébé par adulte au maximum (sur les genoux).");
 
   const { offer, publicOffer } = await flightService.getAvailableOffer(input.offerId);
+  const travellers = await checkPassengers(input.passengers, passengers, offer.departureAt);
   const options = await flightModel.listOptions({ activeOnly: true });
   const { options: lines, bags, totalAmount } = flightService.computeTotal(
     publicOffer, passengers, input.options, options, input.checkedBags
@@ -168,6 +220,7 @@ export async function createOrder(input, { user = null } = {}) {
     link: offer.link,
     gate: offer.gate,
     ...passengers,
+    passengers: travellers,
     adultPrice: publicOffer.adultPrice,
     childPrice: publicOffer.childPrice,
     infantPrice: publicOffer.infantPrice,
@@ -306,7 +359,7 @@ function ticketDetails(order) {
         formatDuration(flight.durationMinutes),
       ].filter(Boolean).join(" · "),
     ],
-    ["Passagers", `${passengersText(order)} · ${order.clientName}`],
+    ["Passagers", `${passengersText(order)} · ${passengerNames(order)}`],
     ["Bagages", bagsText(order)],
   ];
 }

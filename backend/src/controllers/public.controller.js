@@ -1,6 +1,7 @@
 import * as tripService from "../services/trip.service.js";
 import * as reservationService from "../services/reservation.service.js";
 import * as marketingService from "../services/marketing.service.js";
+import * as countriesService from "../services/countries.service.js";
 
 export async function listTrips(req, res) {
   const filters = req.valid.query;
@@ -34,4 +35,11 @@ export async function createReservation(req, res) {
 
 export async function getTracking(req, res) {
   res.json(await reservationService.getTracking(req.valid.params.code, { user: req.user }));
+}
+
+// Formulaires (nationalité, indicatif téléphonique) : la liste change rarement, le navigateur la garde un jour
+export async function listCountries(req, res) {
+  const items = await countriesService.listCountries();
+  res.set("Cache-Control", "public, max-age=86400");
+  res.json({ items });
 }

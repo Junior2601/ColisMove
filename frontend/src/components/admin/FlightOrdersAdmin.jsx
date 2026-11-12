@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Check, ExternalLink, Mail, MessageCircle, Search, X } from "lucide-react";
 import ReservationStatusModal from "../ReservationStatusModal";
 import SendTicketModal from "./SendTicketModal";
+import { PassengerList } from "../flights/Passengers";
 import { Badge, ChipRow, ErrorState, FilterChip, LoadMore, Loader, Toast, btnDanger, btnOutline, btnPrimary, btnSm } from "../ui";
 import { adminApi } from "../../api/admin";
 import { usePaginated } from "../../hooks/useApi";
@@ -70,6 +71,7 @@ function OrderCard({ order, onAction }) {
           {order.options.length > 0 &&
             ` · ${order.options.map((o) => (o.quantity > 1 ? `${o.label} × ${o.quantity}` : o.label)).join(", ")}`}
         </div>
+        <PassengerList passengers={order.passengers} />
         {order.note && <div className="text-ink">📝 {order.note}</div>}
       </div>
 

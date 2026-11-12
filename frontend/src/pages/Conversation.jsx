@@ -4,6 +4,7 @@ import { ArrowLeft, Check, ExternalLink, Mail, MapPin, SendHorizontal, X } from 
 import Layout from "../components/Layout";
 import ReservationStatusModal from "../components/ReservationStatusModal";
 import SendTicketModal from "../components/admin/SendTicketModal";
+import { PassengerList } from "../components/flights/Passengers";
 import { Badge, ErrorState, Loader, Notice, btnDanger, btnOutline, btnPrimary, btnSm } from "../components/ui";
 import { layoutVariantFor, useAuth } from "../context/AuthContext";
 import { useConversation } from "../hooks/useConversation";
@@ -143,6 +144,7 @@ function FlightOrderHeader({ detail, onAction }) {
               Options : {order.options.map((o) => (o.quantity > 1 ? `${o.label} × ${o.quantity}` : o.label)).join(", ")}
             </div>
           )}
+          <PassengerList passengers={order.passengers} />
           <div className="text-[13px] text-muted">
             {viewerSide === "CUSTOMER" ? (
               <>

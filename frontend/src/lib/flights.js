@@ -84,6 +84,50 @@ export function orderBaggageLabel({ flight, bags }) {
 // "1 valise retirée", "2 valises retirées"
 export const removedBagsLabel = (count) => `${formatNumber(count)} valise${count > 1 ? "s" : ""} retirée${count > 1 ? "s" : ""}`;
 
+/* ---------- Passagers (comme sur le passeport) ---------- */
+
+export const PASSENGER_TYPE_LABELS = { ADULT: "Adulte", CHILD: "Enfant", INFANT: "Bébé" };
+
+export const EMPTY_PASSENGER = { fullName: "", gender: "", birthDate: "", nationality: "", passportNumber: "" };
+
+// { adults: 2, children: 1, infants: 0 } → [["ADULT", 0], ["ADULT", 1], ["CHILD", 0]] : place de chaque passager
+export const passengerSlots = ({ adults, children, infants }) => [
+  ...Array.from({ length: adults }, (_, i) => ["ADULT", i]),
+  ...Array.from({ length: children }, (_, i) => ["CHILD", i]),
+  ...Array.from({ length: infants }, (_, i) => ["INFANT", i]),
+];
+
+// "1990-03-12" → "12/03/1990"
+export const formatBirthDate = (isoDate) => isoDate.split("-").reverse().join("/");
+
+const pad = (n) => String(n).padStart(2, "0");
+const toIsoDate = (date) => `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+
+// "2026-12-15" − 12 ans → "2014-12-15" (un 29 février devient le 28 si l'année n'est pas bissextile)
+function yearsBefore(isoDate, years) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const lastDayOfMonth = new Date(Date.UTC(y - years, m, 0)).getUTCDate();
+  return `${y - years}-${pad(m)}-${pad(Math.min(d, lastDayOfMonth))}`;
+}
+
+const dayAfter = (isoDate) => toIsoDate(new Date(Date.parse(`${isoDate}T00:00:00Z`) + 86_400_000));
+
+/**
+ * Dates de naissance possibles selon le type de passager, à la date du vol (même règle que le serveur) :
+ * adulte 12 ans et plus, enfant 2 à 11 ans, bébé moins de 2 ans → { min, max, hint } pour <input type="date">
+ */
+export function birthDateLimits(type, departureAt) {
+  const flightDay = departureAt.slice(0, 10);
+  const now = new Date();
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const earliest = (date) => (date < today ? date : today);
+  if (type === "ADULT") return { min: "1900-01-01", max: yearsBefore(flightDay, 12), hint: "12 ans ou plus le jour du vol." };
+  if (type === "CHILD") {
+    return { min: dayAfter(yearsBefore(flightDay, 12)), max: earliest(yearsBefore(flightDay, 2)), hint: "De 2 à 11 ans le jour du vol." };
+  }
+  return { min: dayAfter(yearsBefore(flightDay, 2)), max: today, hint: "Moins de 2 ans le jour du vol." };
+}
+
 /* ---------- Mois de départ ---------- */
 
 const monthFmt = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
