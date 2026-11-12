@@ -2,6 +2,7 @@
 #  Production MoveColis — sur le VPS, dans /opt/movecolis
 #  Le Nginx déjà installé sur le VPS reçoit le trafic (HTTPS) et le transmet à ces conteneurs,
 #  qui n'écoutent QUE en local (127.0.0.1) : rien n'est exposé directement sur Internet.
+#  La base PostgreSQL tourne elle aussi ici (conteneur db) : aucun port ouvert, seuls ces conteneurs la joignent.
 #  Copié automatiquement par GitHub Actions à chaque déploiement.
 # =========================================================
 name: movecolis
@@ -11,10 +12,35 @@ x-logging: &logging
   options: { max-size: "10m", max-file: "3" } # les journaux ne remplissent jamais le disque
 
 services:
+  # Base PostgreSQL 18 de MoveColis (remplace Render) — données dans le volume movecolis_db-data
+  # Mise en place une seule fois : ./import-db.sh (mot de passe, reprise des données)
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: movecolis
+      POSTGRES_USER: movecolis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant dans .env (lancez ./import-db.sh)}
+    volumes:
+      - db-data:/var/lib/postgresql # PostgreSQL 18 : le volume se monte sur ce dossier
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U movecolis -d movecolis"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    logging: *logging
+
   # API Node.js + Socket.io → Nginx : /api et /socket.io
   api:
     image: ${IMAGE_PREFIX:?IMAGE_PREFIX manquant dans .env}-api:${TAG:-latest}
     env_file: .env.api
+    # La base du VPS, quelle que soit l'adresse restée dans .env.api (ancienne base Render)
+    environment:
+      DATABASE_URL: postgresql://movecolis:${POSTGRES_PASSWORD}@db:5432/movecolis
+      DATABASE_SSL: "false"
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     ports:
       - "127.0.0.1:4100:4000" # 4000 est déjà pris par MoveCash sur le VPS
@@ -27,3 +53,6 @@ services:
     ports:
       - "127.0.0.1:8100:80"
     logging: *logging
+
+volumes:
+  db-data:

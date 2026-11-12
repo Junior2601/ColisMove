@@ -1,14 +1,15 @@
-# MoveColis — Mise en ligne (Docker · GitHub · Render · VPS Hostinger)
+# MoveColis — Mise en ligne (Docker · GitHub · VPS Hostinger)
 
 ```
               GitHub (push sur main)
                       │  GitHub Actions : vérifications → images Docker → déploiement
                       ▼
- ghcr.io (images) ─► VPS Hostinger (Frankfurt) ────────────────────────► Render PostgreSQL
-                     Nginx déjà en place (HTTPS Certbot)                   (Frankfurt, connexion
- https://movecolis.com ─► movecolis.conf                                    chiffrée, IP du VPS)
-                           ├─ /api, /socket.io → 127.0.0.1:4100 (conteneur api)
-                           └─ le reste         → 127.0.0.1:8100 (conteneur web)
+ ghcr.io (images) ─► VPS Hostinger (Frankfurt)
+                     Nginx déjà en place (HTTPS Certbot)
+ https://movecolis.com ─► movecolis.conf
+                           ├─ /api, /socket.io → 127.0.0.1:4100 (conteneur api) ─► conteneur db
+                           └─ le reste         → 127.0.0.1:8100 (conteneur web)      PostgreSQL 18, aucun port
+                                                                                     ouvert, volume movecolis_db-data
                      movecash.site, api.movecash.site : inchangés
 ```
 
@@ -20,8 +21,9 @@ movecolis/
 ├── backend/                      ← API
 ├── frontend/                     ← site React (+ Dockerfile, nginx.conf interne au conteneur)
 ├── deploy/
-│   ├── docker-compose.yml        ← conteneurs api + web (copié à chaque déploiement)
+│   ├── docker-compose.yml        ← conteneurs db + api + web (copié à chaque déploiement)
 │   ├── deploy.sh, backup.sh      ← déploiement avec retour arrière, sauvegarde quotidienne
+│   ├── import-db.sh              ← mise en place de la base du VPS, reprise ou restauration des données
 │   ├── setup-vps.sh              ← préparation du VPS (serveur partagé : ne touche à rien d'existant)
 │   ├── nginx/movecolis.conf      ← site Nginx à installer une fois
 │   └── .env.example, .env.api.example
@@ -31,8 +33,7 @@ movecolis/
 ## Étapes
 
 1. **Dépôt GitHub** privé, `package-lock.json` inclus (backend et frontend).
-2. **Render** : base PostgreSQL à **Frankfurt** (même ville que le VPS). External Database URL ; *Access Control* : IP du VPS uniquement.
-   ⚠️ Une base gratuite expire après 30 jours : passez-la en offre payante avant l'ouverture au public (les données sont conservées).
+2. **Base de données** : PostgreSQL 18 dans le conteneur `db`, sur le VPS (rien à créer ailleurs). Joignable uniquement par l'API ; données dans le volume Docker `movecolis_db-data`.
 3. **DNS** : enregistrements **A** `@` et `www` → IP du VPS. Pas d'enregistrement AAAA (IPv6).
 4. **VPS** (en root) :
    ```bash
@@ -43,6 +44,7 @@ movecolis/
    certbot --nginx -d movecolis.com -d www.movecolis.com              # HTTPS
    ```
 5. **Secrets du VPS** (en tant que deploy, dans `/opt/movecolis`) : `.env` et `.env.api` d'après les modèles, puis `chmod 600 .env .env.api`.
+   Base : `./import-db.sh --empty` (crée son mot de passe dans `.env` et démarre le conteneur `db` ; le premier déploiement crée le schéma).
    Billets d'avion : ajoutez `TRAVELPAYOUTS_TOKEN` (jeton API gratuit sur travelpayouts.com, programme Aviasales) et, si vous l'avez, `TRAVELPAYOUTS_MARKER` dans `.env.api`. La vente s'active ensuite dans *Admin → Billets d'avion → Réglages*. Le SMTP (`SMTP_HOST`…) est indispensable : les billets partent aux clients par e-mail.
    **E-mails** (boîte Hostinger `serviceclient@movecolis.com`, SPF/DKIM/DMARC actifs dans hPanel) : `cd /opt/movecolis && ./configure-mail.sh` demande le mot de passe de la boîte (sans l'afficher), l'enregistre dans `.env.api`, redémarre l'API et vérifie la connexion. À relancer si ce mot de passe change. Test final : *Admin → Paramètres → E-mails → Envoyer le test*. ⚠️ La boîte doit rester payée : sans elle, plus aucun e-mail (ni billet) ne part.
 6. **GitHub** → *Settings* : environnement `production` ; secrets `VPS_HOST`, `VPS_USER` (= deploy), `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS` ; variable `DOMAIN`.
@@ -55,7 +57,23 @@ movecolis/
 - **Revenir en arrière** : `ssh deploy@IP "cd /opt/movecolis && ./deploy.sh sha-xxxxxxx"` (automatique si la nouvelle version ne répond pas).
 - **Journaux** : `docker compose logs -f api` dans `/opt/movecolis`.
 - **Sauvegardes** : chaque nuit à 3 h dans `/opt/movecolis/backups` (14 jours) — copiez-les aussi ailleurs.
+  Restaurer (remplace toutes les données) : `./import-db.sh --force --from backups/movecolis-AAAA-MM-JJ-HHMM.dump`.
 - **Évolutions de la base** : nouveau fichier `backend/database/migrations/00X_….sql` (rejouable, sans perte), appliqué au déploiement suivant.
+
+## Passage de Render à la base du VPS (novembre 2026)
+
+La base gratuite Render a expiré. Une seule fois, après le push qui ajoute le conteneur `db`
+(son déploiement échoue exprès tant que les données ne sont pas reprises : « lancez d'abord ./import-db.sh ») :
+
+```bash
+ssh -t deploy@IP "cd /opt/movecolis && ./import-db.sh"
+```
+
+Le script crée le mot de passe de la base, démarre le conteneur `db`, copie l'ancienne base Render si elle répond
+encore (sinon la dernière sauvegarde valide de `backups/`, après confirmation), affiche ce qui a été repris et
+remet le site en ligne. Puis **GitHub → Actions → dernier déploiement → « Re-run failed jobs »** met en ligne la
+dernière version (migrations comprises). L'adresse Render de `.env.api` n'est plus utilisée : supprimez-la une
+fois le site vérifié.
 
 ## Développement local
 

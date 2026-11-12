@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # =========================================================
-#  Sauvegarde de la base Render sur le VPS (cron quotidien, 3 h) : garde 14 jours
-#  Restauration : docker run --rm -i postgres:18-alpine pg_restore --clean --no-owner -d "$DATABASE_URL" < fichier.dump
+#  Sauvegarde de la base PostgreSQL du VPS (cron quotidien, 3 h) : garde 14 jours
+#  Restauration (remplace toutes les données) : ./import-db.sh --force --from backups/movecolis-AAAA-MM-JJ-HHMM.dump
 # =========================================================
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p backups
 
-DATABASE_URL="$(grep -E '^DATABASE_URL=' .env.api | cut -d= -f2-)"
 FILE="backups/movecolis-$(date +%F-%H%M).dump"
+PART="$FILE.part"
+trap 'rm -f "$PART"' EXIT
 
-# pg_dump doit être d'une version ≥ à celle du serveur : la base Render est en PostgreSQL 18
-docker run --rm -e PGSSLMODE=require postgres:18-alpine pg_dump --format=custom --no-owner "$DATABASE_URL" > "$FILE"
+# Fichier écrit à part puis renommé : une sauvegarde ratée ne laisse jamais de fichier vide ou tronqué
+docker compose exec -T db pg_dump --format=custom --no-owner -U movecolis movecolis > "$PART"
+mv "$PART" "$FILE"
 
 find backups -name "movecolis-*.dump" -mtime +14 -delete
 echo "$(date '+%F %T') ✅ $FILE ($(du -h "$FILE" | cut -f1))"
