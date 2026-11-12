@@ -62,7 +62,7 @@ export default function TripCard({ trip }) {
       className="block rounded-2xl overflow-hidden border border-line-light bg-white transition hover:shadow-card-hover hover:-translate-y-0.5"
     >
       {/* Couverture en dégradé (toujours la même couleur pour un trajet donné) avec badges */}
-      <div className={`relative h-32 bg-gradient-to-br ${coverClassFor(trip)} flex items-end px-4 py-3.5`}>
+      <div className={`relative h-32 bg-linear-to-br ${coverClassFor(trip)} flex items-end px-4 py-3.5`}>
         <span className="absolute top-3 left-3 bg-white text-ink text-xs font-bold rounded-full px-3 py-1.5 shadow-card">
           {formatKg(trip.kilosAvailable)} disponibles
         </span>

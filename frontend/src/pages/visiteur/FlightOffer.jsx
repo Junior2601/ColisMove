@@ -214,7 +214,7 @@ export default function FlightOffer() {
       <div className="lg:grid lg:grid-cols-[2fr_1fr] lg:gap-7 lg:items-start">
         {/* ===== Colonne détails ===== */}
         <div>
-          <div className="rounded-2xl bg-gradient-to-br from-[#FF385C] to-[#B3123F] text-white px-5 py-6 mt-4">
+          <div className="rounded-2xl bg-linear-to-br from-primary to-[#B3123F] text-white px-5 py-6 mt-4">
             <span className="inline-block bg-white text-ink text-xs font-bold rounded-full px-3 py-1.5 shadow-card mb-2.5">
               À partir de {money(offer.adultPrice)} par adulte
             </span>

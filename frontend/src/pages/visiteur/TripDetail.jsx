@@ -156,7 +156,7 @@ export default function TripDetail() {
         {/* ===== Colonne détails ===== */}
         <div>
           {/* Couverture */}
-          <div className={`rounded-2xl bg-gradient-to-br ${coverClassFor(trip)} text-white px-5 py-6 mt-4`}>
+          <div className={`rounded-2xl bg-linear-to-br ${coverClassFor(trip)} text-white px-5 py-6 mt-4`}>
             <span className="inline-block bg-white text-ink text-xs font-bold rounded-full px-3 py-1.5 shadow-card mb-2.5">
               {formatKg(trip.kilosAvailable)} encore disponibles
             </span>

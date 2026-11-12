@@ -1,12 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Cookie } from "lucide-react";
 import { Modal, btnOutline, btnPrimary, btnSm } from "../components/ui";
 import { COOKIE_CATEGORIES, OPTIONAL_CATEGORIES } from "../config/cookies";
 import { readConsent, writeConsent } from "../lib/consent";
 import { applyConsent, clearOptionalCookies, trackPageView, trackersLoaded } from "../lib/trackers";
-
-const ConsentContext = createContext(null);
+import { ConsentContext } from "./ConsentContext";
 
 const allChoices = (value) => Object.fromEntries(OPTIONAL_CATEGORIES.map((c) => [c.key, value]));
 
@@ -23,7 +22,7 @@ function Switch({ checked, disabled, onChange, label }) {
       className={`relative w-11 h-6.5 rounded-full transition shrink-0 disabled:opacity-60 ${checked ? "bg-ink" : "bg-line"}`}
     >
       <span
-        className={`absolute top-[3px] left-[3px] w-5 h-5 rounded-full bg-white shadow transition-transform ${
+        className={`absolute top-0.75 left-0.75 w-5 h-5 rounded-full bg-white shadow transition-transform ${
           checked ? "translate-x-4.5" : ""
         }`}
       />
@@ -37,7 +36,7 @@ function CookieBanner({ onAcceptAll, onRejectAll, onCustomize }) {
     <div
       role="dialog"
       aria-label="Cookies"
-      className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] lg:bottom-5 z-[65] flex justify-center"
+      className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] lg:bottom-5 z-65 flex justify-center"
     >
       <div className="w-full max-w-3xl bg-white border border-line-light rounded-2xl shadow-card-hover p-4 sm:p-5">
         <div className="flex items-start gap-3">
@@ -180,10 +179,4 @@ export function ConsentProvider({ children }) {
       )}
     </ConsentContext.Provider>
   );
-}
-
-export function useConsent() {
-  const context = useContext(ConsentContext);
-  if (!context) throw new Error("useConsent() doit être utilisé à l'intérieur de <ConsentProvider>.");
-  return context;
 }

@@ -274,7 +274,7 @@ export default function CreateTrip() {
               }`}
             >
               <span
-                className={`absolute top-[3px] left-[3px] w-5.5 h-5.5 rounded-full bg-white shadow transition-transform ${
+                className={`absolute top-0.75 left-0.75 w-5.5 h-5.5 rounded-full bg-white shadow transition-transform ${
                   form.hasStop ? "translate-x-5" : ""
                 }`}
               />

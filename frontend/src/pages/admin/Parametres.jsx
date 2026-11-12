@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Check, MessageSquare } from "lucide-react";
 import Layout from "../../components/Layout";
 import MailSettings from "../../components/admin/MailSettings";
@@ -33,20 +33,21 @@ const digitsOnly = (value) => value.replace(/\D/g, "");
 export default function Parametres() {
   const { data, loading, error, reload, setData } = useApi(() => adminApi.getSettings(), []);
   const [form, setForm] = useState(null);
+  const [formFor, setFormFor] = useState(null); // paramètres serveur à partir desquels le formulaire a été rempli
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const templateRef = useRef(null);
 
   // Pré-remplit (ou réinitialise) le formulaire quand les paramètres arrivent du serveur
-  useEffect(() => {
-    if (!data) return;
+  if (data && data !== formFor) {
+    setFormFor(data);
     setForm({
       supportWhatsapp: data.supportWhatsapp ? `+${data.supportWhatsapp}` : "",
       template: data.reservationMessageTemplate,
       paymentInfo: data.paymentInfo ?? "",
     });
-  }, [data]);
+  }
 
   if (!form) {
     return (
@@ -146,7 +147,7 @@ export default function Parametres() {
           <div className="mb-5">
             <div className="text-[13px] font-bold mb-1.5">Aperçu dans la conversation</div>
             <div className="bg-surface rounded-xl p-4">
-              <div className="bg-primary text-white rounded-2xl rounded-br-md px-3.5 py-2.5 text-sm max-w-[85%] ml-auto whitespace-pre-wrap break-words">
+              <div className="bg-primary text-white rounded-2xl rounded-br-md px-3.5 py-2.5 text-sm max-w-[85%] ml-auto whitespace-pre-wrap wrap-break-word">
                 {preview}
                 <span className="block text-right text-[10.5px] opacity-80 mt-1">14:32 · Koné Awa</span>
               </div>

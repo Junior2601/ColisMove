@@ -344,7 +344,7 @@ function MessageBubble({ message, mine, showName, name, seen, onRetry, onOpenIma
         </div>
       ) : (
         <div
-          className={`px-3.5 py-2 text-sm max-w-[85%] whitespace-pre-wrap break-words ${
+          className={`px-3.5 py-2 text-sm max-w-[85%] whitespace-pre-wrap wrap-break-word ${
             mine
               ? "bg-primary text-white rounded-2xl rounded-br-md"
               : message.senderType === "ADMIN"
@@ -411,7 +411,7 @@ function Composer({ onSend, onTyping, onPickImage }) {
         maxLength={2000}
         placeholder="Écrire un message…"
         aria-label="Votre message"
-        className="flex-1 min-w-0 resize-none max-h-32 border border-line rounded-2xl px-3.5 py-2.5 text-sm outline-none focus:border-ink transition [field-sizing:content]"
+        className="flex-1 min-w-0 resize-none max-h-32 border border-line rounded-2xl px-3.5 py-2.5 text-sm outline-none focus:border-ink transition field-sizing-content"
       />
       <button
         type="submit"

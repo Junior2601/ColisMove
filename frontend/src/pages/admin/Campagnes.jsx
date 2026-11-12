@@ -45,6 +45,15 @@ function momentWindow(moment) {
   };
 }
 
+// Envoi proposé : début de la fenêtre à 10 h (heure du navigateur), ou dans 1 h si elle est déjà ouverte
+function suggestedSendDate(moment) {
+  const { start } = momentWindow(moment);
+  const sendAt = Math.max(start, Date.now() + 3600000);
+  const at = new Date(sendAt);
+  if (sendAt === start) at.setHours(10, 0, 0, 0);
+  return at;
+}
+
 function momentStatus(moment) {
   const today = startOfToday();
   const { date, start, end } = momentWindow(moment);
@@ -116,10 +125,16 @@ function CampaignForm({ initial, onSaved, onCancel }) {
   const [saving, setSaving] = useState(false);
   const formRef = useRef(null);
 
-  useEffect(() => {
+  // Autre campagne ouverte (nouvelle, moment fort, modification) : le formulaire repart de ses valeurs
+  const [formFor, setFormFor] = useState(initial);
+  if (formFor !== initial) {
+    setFormFor(initial);
     setForm(initial);
     setErrors({});
     setFormError(null);
+  }
+
+  useEffect(() => {
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [initial]);
 
@@ -273,10 +288,6 @@ export default function Campagnes() {
   const upcoming = SEASONAL_MOMENTS.map((m) => ({ ...m, status: momentStatus(m) })).filter((m) => m.status).slice(0, 6);
 
   function prepare(moment) {
-    const { start } = momentWindow(moment);
-    const sendAt = Math.max(start, Date.now() + 3600000); // début de fenêtre (ou dans 1 h si elle est déjà ouverte)
-    const at = new Date(sendAt);
-    if (sendAt === start) at.setHours(10, 0, 0, 0); // 10 h, heure de votre navigateur
     setFormInitial({
       ...EMPTY_FORM,
       moment: `${moment.label} ${moment.date.slice(0, 4)}`,
@@ -284,7 +295,7 @@ export default function Campagnes() {
       body: moment.body,
       audience: moment.audience,
       ...presetFromLink(moment.link ?? "/"),
-      scheduledAt: toInputDate(at),
+      scheduledAt: toInputDate(suggestedSendDate(moment)),
     });
   }
 

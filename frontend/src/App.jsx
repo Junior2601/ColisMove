@@ -1,8 +1,8 @@
 import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { AuthProvider } from "./context/AuthContext";
-import { NotificationsProvider } from "./context/NotificationsContext";
-import { ConsentProvider } from "./context/ConsentContext";
+import { AuthProvider } from "./context/AuthProvider";
+import { NotificationsProvider } from "./context/NotificationsProvider";
+import { ConsentProvider } from "./context/ConsentProvider";
 import { registerServiceWorker } from "./lib/pwa";
 import RequireRole from "./components/RequireRole";
 // Visiteur

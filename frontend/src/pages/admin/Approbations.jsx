@@ -34,7 +34,7 @@ function TravelerCard({ t, busy, onUpdate }) {
       <div className="flex justify-between items-start gap-2.5">
         <div className="min-w-0">
           <div className="font-bold text-[14.5px]">{fullName(t)}</div>
-          <div className="text-[13px] text-muted break-words">
+          <div className="text-[13px] text-muted wrap-break-word">
             {t.city ?? "Ville non renseignée"} · {t.email} · +{t.phone}
           </div>
           <div className="text-[13px] text-muted">

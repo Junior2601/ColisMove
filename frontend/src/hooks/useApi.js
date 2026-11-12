@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// Mêmes dépendances qu'au rendu précédent ? (comparaison identique à celle de React)
+const sameDeps = (a, b) => a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
+
+/**
+ * Dépendances modifiées depuis le dernier rendu → appelle onChange pendant le rendu
+ * (et non dans un effet : pas de rendu intermédiaire avec un état périmé).
+ */
+function useOnDepsChange(deps, onChange) {
+  const [tracked, setTracked] = useState(deps);
+  if (!sameDeps(tracked, deps)) {
+    setTracked(deps);
+    onChange();
+  }
+}
+
 /**
  * Charge des données au montage, puis à chaque changement de `deps`.
  *   const { data, loading, error, reload, setData } = useApi(() => adminApi.getStats(), []);
@@ -9,9 +24,11 @@ export function useApi(fetcher, deps = []) {
   const [state, setState] = useState({ data: null, loading: true, error: null });
   const [reloadKey, setReloadKey] = useState(0);
 
+  // Nouveaux paramètres : chargement en cours dès ce rendu (les anciennes données restent affichées)
+  useOnDepsChange(deps, () => setState((s) => ({ ...s, loading: true, error: null })));
+
   useEffect(() => {
     let active = true; // ignore la réponse si le composant a changé entre-temps
-    setState((s) => ({ ...s, loading: true, error: null }));
     fetcher()
       .then((data) => active && setState({ data, loading: false, error: null }))
       .catch((error) => active && setState((s) => ({ ...s, loading: false, error })));
@@ -21,7 +38,10 @@ export function useApi(fetcher, deps = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, reloadKey]);
 
-  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  const reload = useCallback(() => {
+    setState((s) => ({ ...s, loading: true, error: null }));
+    setReloadKey((k) => k + 1);
+  }, []);
   const setData = useCallback(
     (updater) =>
       setState((s) => ({ ...s, data: typeof updater === "function" ? updater(s.data) : updater })),
@@ -49,10 +69,14 @@ export function usePaginated(fetchPage, deps = [], pageSize = 20) {
   const [reloadKey, setReloadKey] = useState(0);
   const requestId = useRef(0); // seule la dernière requête lancée a le droit de mettre à jour l'état
 
-  useEffect(() => {
-    const id = ++requestId.current;
+  // Nouveaux filtres : chargement de la première page dès ce rendu
+  useOnDepsChange([...deps, pageSize], () => {
     setLoading(true);
     setError(null);
+  });
+
+  useEffect(() => {
+    const id = ++requestId.current;
     fetchPage({ limit: pageSize, offset: 0 })
       .then(({ items: firstPage, total: count, ...rest }) => {
         if (id !== requestId.current) return;
@@ -80,7 +104,11 @@ export function usePaginated(fetchPage, deps = [], pageSize = 20) {
     }
   }
 
-  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  const reload = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setReloadKey((k) => k + 1);
+  }, []);
 
   return {
     items, setItems,

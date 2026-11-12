@@ -50,7 +50,7 @@ function ReservationHistory({ reservationId, version }) {
     <ol className="border-l-2 border-line-light ml-1.5 mt-1 pl-4 flex flex-col gap-2.5">
       {data.history.map((event) => (
         <li key={event.id} className="relative text-[13px]">
-          <span className="absolute -left-[22px] top-1 w-2.5 h-2.5 rounded-full bg-primary" />
+          <span className="absolute -left-5.5 top-1 w-2.5 h-2.5 rounded-full bg-primary" />
           <div className="font-bold">
             {RESERVATION_STATUS[event.status].label}
             {event.note && <span className="font-normal text-muted"> — {event.note}</span>}

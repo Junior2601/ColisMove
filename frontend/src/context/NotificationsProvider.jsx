@@ -1,30 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Bell, CalendarDays, Clock, Megaphone, MessageCircle, Package, PackagePlus, Plane, Ticket, UserCheck, X } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { notificationsApi } from "../api/notifications";
 import { useAuth } from "./AuthContext";
+import { NOTIFICATION_ICONS, NotificationsContext } from "./NotificationsContext";
 import { useSocketEvent } from "../hooks/useSocketEvent";
 import { setAppBadge } from "../lib/pwa";
 import { syncPushSubscription } from "../lib/push";
 
-const NotificationsContext = createContext(null);
-
-// Icône de chaque type de notification (cloche, toast, centre de notifications)
-export const NOTIFICATION_ICONS = {
-  NEW_MESSAGE: MessageCircle,
-  NEW_RESERVATION: Package,
-  RESERVATION_STATUS: Package,
-  TRIP_CANCELLED: Plane,
-  TRAVELER_APPROVED: UserCheck,
-  TRAVELER_PENDING: UserCheck,
-  NEW_TRIP: PackagePlus, // nouveaux kilos publiés (tous les clients)
-  ROUTE_ALERT: Plane, // un voyageur part sur un trajet recherché / consulté / favori
-  DEPARTURE_SOON: Clock, // « Il reste 3 jours pour confier votre colis »
-  WEEKLY_DIGEST: CalendarDays, // « Des voyageurs partent vers X cette semaine »
-  CAMPAIGN: Megaphone, // campagne saisonnière
-  FLIGHT_ORDER: Ticket, // (admin) nouvelle demande de billet d'avion
-  FLIGHT_ORDER_STATUS: Ticket, // paiement reçu, billet émis, annulation
-};
+const NO_COUNTS = { notifications: 0, messages: 0 };
 
 /* ===== Toast affiché quand une notification arrive pendant que le site est ouvert ===== */
 function NotificationToast({ notification, onOpen, onClose }) {
@@ -35,7 +19,7 @@ function NotificationToast({ notification, onOpen, onClose }) {
 
   const Icon = NOTIFICATION_ICONS[notification.type] ?? Bell;
   return (
-    <div className="fixed top-17 lg:top-21 inset-x-3 sm:inset-x-auto sm:right-5 sm:w-96 z-[70]" role="status" aria-live="polite">
+    <div className="fixed top-17 lg:top-21 inset-x-3 sm:inset-x-auto sm:right-5 sm:w-96 z-70" role="status" aria-live="polite">
       <div className="flex items-start gap-3 bg-white border border-line-light rounded-2xl shadow-card-hover px-4 py-3">
         <button type="button" onClick={onOpen} className="flex items-start gap-3 flex-1 min-w-0 text-left">
           <span className="w-9 h-9 rounded-full bg-[#FEEFE7] text-primary flex items-center justify-center shrink-0">
@@ -66,9 +50,17 @@ export function NotificationsProvider({ children }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [counts, setCounts] = useState({ notifications: 0, messages: 0 });
+  const [counts, setCounts] = useState(NO_COUNTS);
   const [toast, setToast] = useState(null);
   const timer = useRef(null);
+
+  // Connexion / déconnexion / changement de compte : on repart de zéro (pas les compteurs du compte précédent)
+  const userId = user?.id ?? null;
+  const [countsFor, setCountsFor] = useState(userId);
+  if (countsFor !== userId) {
+    setCountsFor(userId);
+    setCounts(NO_COUNTS);
+  }
 
   const refresh = useCallback(() => {
     notificationsApi.counts().then(setCounts).catch(() => {});
@@ -80,12 +72,9 @@ export function NotificationsProvider({ children }) {
     timer.current = setTimeout(refresh, 400);
   }, [refresh]);
 
-  // Connexion / déconnexion : compteurs + abonnement push de cet appareil
+  // Connexion : compteurs + abonnement push de cet appareil
   useEffect(() => {
-    if (!user) {
-      setCounts({ notifications: 0, messages: 0 });
-      return;
-    }
+    if (!user) return;
     refresh();
     syncPushSubscription().catch(() => {});
     return () => clearTimeout(timer.current);
@@ -156,10 +145,4 @@ export function NotificationsProvider({ children }) {
       {toast && <NotificationToast notification={toast} onOpen={() => openNotification(toast)} onClose={closeToast} />}
     </NotificationsContext.Provider>
   );
-}
-
-export function useNotifications() {
-  const context = useContext(NotificationsContext);
-  if (!context) throw new Error("useNotifications() doit être utilisé à l'intérieur de <NotificationsProvider>.");
-  return context;
 }

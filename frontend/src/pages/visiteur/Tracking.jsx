@@ -71,19 +71,26 @@ function buildSteps(tracking) {
   }));
 }
 
+const cleanCode = (value) => (value ?? "").trim().toUpperCase();
+
 export default function Tracking() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [code, setCode] = useState(searchParams.get("code") ?? "");
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
+  // Arrivée avec ?code=… : la recherche part dès l'affichage
+  const [loading, setLoading] = useState(() => Boolean(cleanCode(searchParams.get("code"))));
 
-  async function track(value) {
-    const clean = value.trim().toUpperCase();
+  function track(value) {
+    const clean = cleanCode(value);
     if (!clean) return;
     setLoading(true);
     setError(null);
+    load(clean);
+  }
+
+  async function load(clean) {
     try {
       // Le token est envoyé s'il existe : client concerné, propriétaire ou admin → suivi détaillé
       setResult(await publicApi.getTracking(clean));
@@ -98,8 +105,8 @@ export default function Tracking() {
 
   // Arrivée avec ?code=… (depuis l'espace client ou la messagerie) → recherche automatique
   useEffect(() => {
-    const initial = searchParams.get("code");
-    if (initial) track(initial);
+    const initial = cleanCode(searchParams.get("code"));
+    if (initial) load(initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

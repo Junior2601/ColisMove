@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { MapPin, MessageCircle, X } from "lucide-react";
 import Layout from "../../components/Layout";
 import ReservationStatusModal from "../../components/ReservationStatusModal";
-import OnboardingRoutes, { onboardingPostponed } from "../../components/OnboardingRoutes";
+import OnboardingRoutes from "../../components/OnboardingRoutes";
+import { onboardingPostponed } from "../../lib/onboarding";
 import { marketingApi } from "../../api/marketing";
 import {
   Badge, ErrorState, LoadMore, Loader, StatCard, Toast, btnDanger, btnOutline, btnPrimary, btnSm,

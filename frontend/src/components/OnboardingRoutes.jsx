@@ -6,12 +6,9 @@ import { ErrorState, btnOutline, btnPrimary, btnSm } from "./ui";
 import { marketingApi } from "../api/marketing";
 import { errorMessage } from "../api/client";
 import { usePushNotifications } from "../hooks/usePushNotifications";
+import { postponeOnboarding } from "../lib/onboarding";
 
-const LATER_KEY = "movecolis_onboarding_later";
-const LATER_DAYS = 7;
 const EMPTY_ROUTE = { departureCity: "", arrivalCity: "" };
-
-export const onboardingPostponed = () => Date.now() < Number(localStorage.getItem(LATER_KEY) || 0);
 
 function Toggle({ checked, onChange, children }) {
   return (
@@ -53,7 +50,7 @@ export default function OnboardingRoutes({ onDone, onLater }) {
   }
 
   function later() {
-    localStorage.setItem(LATER_KEY, String(Date.now() + LATER_DAYS * 86400000));
+    postponeOnboarding();
     onLater?.();
   }
 

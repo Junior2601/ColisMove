@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { BellRing, Copy, Download, MoreVertical, Share, SquarePlus, X, Zap } from "lucide-react";
+import { Copy, Download, MoreVertical, Share, SquarePlus, X } from "lucide-react";
 import { btnOutline, btnPrimary, btnSm } from "./ui";
 import { useConsent } from "../context/ConsentContext";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
+import { INSTALL_BENEFITS } from "../lib/installApp";
 import { isMobile } from "../lib/pwa";
 
 const SNOOZE_KEY = "movecolis_install_prompt";
@@ -13,12 +14,6 @@ function isSnoozed() {
   const until = Number(localStorage.getItem(SNOOZE_KEY) || 0);
   return Date.now() < until;
 }
-
-export const BENEFITS = [
-  { icon: BellRing, text: "Notifications des messages et de chaque étape de vos colis, même appli fermée" },
-  { icon: Zap, text: "Ouverture en un geste depuis l'écran d'accueil, en plein écran" },
-  { icon: Download, text: "Rien à télécharger sur un store : l'appli pèse moins d'un Mo" },
-];
 
 /** Étapes d'installation adaptées à l'appareil (aussi utilisées par la page /application) */
 export function InstallSteps({ ios, android, inApp }) {
@@ -99,7 +94,7 @@ export default function InstallAppPrompt() {
     <div
       role="dialog"
       aria-label="Installer l'application MoveColis"
-      className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[64] flex justify-center lg:hidden"
+      className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-64 flex justify-center lg:hidden"
     >
       <div className="w-full max-w-md bg-white border border-line-light rounded-2xl shadow-card-hover p-4">
         <div className="flex items-start gap-3">
@@ -114,7 +109,7 @@ export default function InstallAppPrompt() {
         </div>
 
         <ul className="mt-3 space-y-1.5">
-          {BENEFITS.slice(0, 2).map(({ icon: Icon, text }) => (
+          {INSTALL_BENEFITS.slice(0, 2).map(({ icon: Icon, text }) => (
             <li key={text} className="flex items-start gap-2 text-[13px]">
               <Icon size={16} className="text-primary shrink-0 mt-0.5" /> {text}
             </li>

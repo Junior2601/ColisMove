@@ -18,7 +18,7 @@ export const MOCK_TRIPS = [
     pricePerKilo: 9500,
     currency: "F",
     owner: { name: "KiloFly", role: "admin", whatsapp: "2250712345678" },
-    coverClass: "from-[#FF385C] via-[#E31C5F] to-[#BD1E59]",
+    coverClass: "from-primary via-primary-dark to-[#BD1E59]",
   },
   {
     id: 2,

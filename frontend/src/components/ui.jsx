@@ -79,7 +79,7 @@ export function Toast({ flash }) {
     <div
       role="status"
       aria-live="polite"
-      className="fixed inset-x-0 bottom-24 lg:bottom-6 z-[55] flex justify-center px-5 pointer-events-none"
+      className="fixed inset-x-0 bottom-24 lg:bottom-6 z-55 flex justify-center px-5 pointer-events-none"
     >
       <div
         key={flash.id}
@@ -97,7 +97,7 @@ export function Toast({ flash }) {
 /* ===== Filtres en pastilles (ligne défilante horizontalement) ===== */
 export function ChipRow({ children }) {
   return (
-    <div className="flex gap-2 overflow-x-auto pb-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="flex gap-2 overflow-x-auto pb-3.5 scrollbar-none [&::-webkit-scrollbar]:hidden">
       {children}
     </div>
   );
@@ -149,7 +149,7 @@ export function Modal({ open, title, onClose, children }) {
     <div
       role="presentation"
       onClick={onClose}
-      className="fixed inset-0 z-[60] bg-black/40 flex items-end sm:items-center justify-center sm:p-4"
+      className="fixed inset-0 z-60 bg-black/40 flex items-end sm:items-center justify-center sm:p-4"
     >
       <div
         role="dialog"

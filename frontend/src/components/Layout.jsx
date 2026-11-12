@@ -112,7 +112,7 @@ export default function Layout({ children, variant = "public" }) {
               aria-label={user ? "Mon espace" : "Créer un compte"}
               className="flex items-center gap-2 border border-line rounded-3xl py-1.5 pl-3 pr-1.5 transition-shadow hover:shadow-card"
             >
-              <span className="flex flex-col gap-[3px]">
+              <span className="flex flex-col gap-0.75">
                 <span className="block w-3.5 h-0.5 bg-ink rounded" />
                 <span className="block w-3.5 h-0.5 bg-ink rounded" />
                 <span className="block w-3.5 h-0.5 bg-ink rounded" />

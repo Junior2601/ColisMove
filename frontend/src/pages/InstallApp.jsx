@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import { CircleCheck, Download, Monitor, Smartphone } from "lucide-react";
 import Layout from "../components/Layout";
 import AppSettings from "../components/AppSettings";
-import { BENEFITS, InstallSteps } from "../components/InstallAppPrompt";
+import { InstallSteps } from "../components/InstallAppPrompt";
+import { INSTALL_BENEFITS } from "../lib/installApp";
 import { btnPrimary } from "../components/ui";
 import { layoutVariantFor, useAuth } from "../context/AuthContext";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
@@ -57,7 +58,7 @@ export default function InstallApp() {
 
         {/* ===== Avantages ===== */}
         <ul className="border border-line-light rounded-2xl bg-white p-4 space-y-2.5 mb-5">
-          {BENEFITS.map(({ icon: Icon, text }) => (
+          {INSTALL_BENEFITS.map(({ icon: Icon, text }) => (
             <li key={text} className="flex items-start gap-2.5 text-sm">
               <Icon size={18} className="text-primary shrink-0 mt-0.5" /> {text}
             </li>

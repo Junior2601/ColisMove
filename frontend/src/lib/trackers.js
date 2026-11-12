@@ -18,7 +18,7 @@ function loadGoogleAnalytics() {
   if (analyticsLoaded || !GA_MEASUREMENT_ID) return;
   window.dataLayer = window.dataLayer || [];
   window.gtag = function gtag() {
-    window.dataLayer.push(arguments); // eslint-disable-line prefer-rest-params
+    window.dataLayer.push(arguments);
   };
   window.gtag("js", new Date());
   window.gtag("config", GA_MEASUREMENT_ID, {
@@ -33,7 +33,7 @@ function loadMetaPixel() {
   if (marketingLoaded || !META_PIXEL_ID) return;
   // Équivalent du code fourni par Meta, sans script en ligne dans index.html
   const fbq = function fbq() {
-    fbq.callMethod ? fbq.callMethod.apply(fbq, arguments) : fbq.queue.push(arguments); // eslint-disable-line prefer-rest-params
+    fbq.callMethod ? fbq.callMethod.apply(fbq, arguments) : fbq.queue.push(arguments);
   };
   fbq.push = fbq;
   fbq.loaded = true;

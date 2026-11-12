@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { Package, Plane, Search } from "lucide-react";
 import Layout from "../../components/Layout";
@@ -53,9 +53,11 @@ export default function Home() {
   const linkedRoute = from && to ? `${from} → ${to}` : to || from || "";
   const [query, setQuery] = useState(linkedRoute);
   // Notification ouverte alors que l'accueil est déjà affiché : on suit le nouveau lien
-  useEffect(() => {
+  const [followedRoute, setFollowedRoute] = useState(linkedRoute);
+  if (linkedRoute !== followedRoute) {
+    setFollowedRoute(linkedRoute);
     if (linkedRoute) setQuery(linkedRoute);
-  }, [linkedRoute]);
+  }
   const search = useDebouncedValue(query.trim());
   const [filterKey, setFilterKey] = useState("all");
   const filter = FILTERS.find((f) => f.key === filterKey);
@@ -171,7 +173,7 @@ function ParcelsTab({ user, query, setQuery, filterKey, setFilterKey, trips, com
 
       {/* ===== Filtres (puces défilantes) ===== */}
       <div
-        className="flex gap-2 overflow-x-auto pb-3.5 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex gap-2 overflow-x-auto pb-3.5 pt-1 scrollbar-none [&::-webkit-scrollbar]:hidden"
         role="tablist"
         aria-label="Filtres"
       >

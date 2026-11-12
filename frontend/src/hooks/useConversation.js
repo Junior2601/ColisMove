@@ -37,7 +37,7 @@ export function useConversation(conversationId) {
   const [detail, setDetail] = useState(null);
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(id));
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState(null);
   const [otherTyping, setOtherTyping] = useState(false);
@@ -52,13 +52,19 @@ export function useConversation(conversationId) {
   const otherTypingTimer = useRef(null);
 
   /* ---------- 1. Chargement initial (REST) ---------- */
-  useEffect(() => {
-    if (!id) return setLoading(false); // lien invalide : rien à charger
-    let active = true;
-    setLoading(true);
+  // Autre conversation : on repart de zéro dès ce rendu (Object.is : un lien invalide donne NaN)
+  const [loadedId, setLoadedId] = useState(id);
+  if (!Object.is(loadedId, id)) {
+    setLoadedId(id);
+    setLoading(Boolean(id));
     setError(null);
     setDetail(null);
     setMessages([]);
+  }
+
+  useEffect(() => {
+    if (!id) return undefined; // lien invalide : rien à charger
+    let active = true;
 
     Promise.all([conversationsApi.get(id), conversationsApi.messages(id, { limit: 30 })])
       .then(([conversation, page]) => {
