@@ -268,6 +268,23 @@ export async function createOrder(input, { user = null } = {}) {
   return { flightOrder: forCustomer(saved), conversationId: created.conversationId, guestToken: created.guestToken };
 }
 
+/**
+ * Message « numéros de paiement » envoyé au client par l'admin (bouton « Envoyer le numéro de paiement »).
+ * paymentInfo : texte des réglages des billets (Orange Money, Wave…)
+ */
+export function paymentInfoMessage(order, paymentInfo) {
+  return [
+    `💳 Paiement de votre billet ${order.reference}`,
+    `${routeOf(order)} · ${formatLocalDate(order.flight.departureAt)}`,
+    `Montant à payer : ${formatMoney(order.totalAmount, order.currency)}`,
+    "",
+    paymentInfo.trim(),
+    "",
+    "Une fois le paiement fait, envoyez la capture d'écran ici avec le bouton 📷 en bas de la conversation. " +
+      "Nous émettrons ensuite votre billet.",
+  ].join("\n");
+}
+
 /* ===================== Administration ===================== */
 
 export async function listOrders(filters) {

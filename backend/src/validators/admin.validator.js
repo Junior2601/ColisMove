@@ -43,6 +43,8 @@ export const updateSettingsBody = z
   .object({
     supportWhatsapp: z.preprocess(emptyToNull, phoneSchema.nullable()).optional(),
     reservationMessageTemplate: z.string().trim().min(10).max(1000).optional(),
+    // Numéros de paiement de MoveColis (« Orange Money : +225 07… (Nom) », un par ligne)
+    paymentInfo: z.string().trim().max(1000, "1000 caractères maximum.").optional(),
   })
   .refine((data) => Object.keys(data).length > 0, "Aucun champ à modifier.");
 

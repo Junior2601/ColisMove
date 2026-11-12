@@ -4,7 +4,7 @@
 --     À utiliser en développement uniquement.
 -- =========================================================
 
-DROP TABLE IF EXISTS flight_orders, flight_offers, flight_searches, flight_options, flight_settings, password_resets, job_runs, marketing_queue, campaigns, route_interests, push_subscriptions, notifications, messages, conversations, tracking_events, reservations, trips, settings, users CASCADE;
+DROP TABLE IF EXISTS message_attachments, flight_orders, flight_offers, flight_searches, flight_options, flight_settings, password_resets, job_runs, marketing_queue, campaigns, route_interests, push_subscriptions, notifications, messages, conversations, tracking_events, reservations, trips, settings, users CASCADE;
 DROP TYPE  IF EXISTS flight_order_status, flight_option_unit, marketing_status, campaign_audience, campaign_status, interest_source, notification_type, message_sender, reservation_status, trip_status, user_status, user_role CASCADE;
 DROP FUNCTION IF EXISTS set_updated_at, touch_conversation, city_key CASCADE;
 
@@ -43,6 +43,8 @@ CREATE TABLE users (
   password_hash     TEXT         NOT NULL,
   phone             VARCHAR(20)  NOT NULL,   -- international, chiffres uniquement (ex. 2250712345678), unique
   city              VARCHAR(80),             -- ville de résidence (voyageur)
+  -- Numéros de paiement du voyageur (Orange Money, Wave…), envoyés à ses clients depuis la conversation
+  payment_info      TEXT         NOT NULL DEFAULT '' CHECK (char_length(payment_info) <= 1000),
   role              user_role    NOT NULL DEFAULT 'CLIENT',
   status            user_status  NOT NULL DEFAULT 'APPROVED', -- PENDING pour les voyageurs à l'inscription
   status_changed_at TIMESTAMPTZ,             -- date d'approbation / de refus (affichée côté admin)
@@ -119,6 +121,8 @@ CREATE TABLE reservations (
   currency           VARCHAR(3)    NOT NULL,
 
   status             reservation_status NOT NULL DEFAULT 'PENDING',
+  payment_info_sent_at TIMESTAMPTZ,                 -- dernier envoi des numéros de paiement au client
+  paid_at            TIMESTAMPTZ,                   -- paiement reçu (indépendant des étapes du colis)
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -177,6 +181,20 @@ CREATE TABLE messages (
 );
 
 CREATE INDEX idx_messages_conversation ON messages(conversation_id, id);
+
+-- Photo jointe à un message (une au plus) : capture du paiement d'un billet d'avion…
+-- Lue uniquement par les participants de la conversation (GET /api/conversations/:id/attachments/:attachmentId)
+CREATE TABLE message_attachments (
+  id            BIGSERIAL PRIMARY KEY,
+  message_id    BIGINT       NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  content_type  VARCHAR(20)  NOT NULL CHECK (content_type IN ('image/jpeg', 'image/png', 'image/webp')),
+  size_bytes    INT          NOT NULL CHECK (size_bytes BETWEEN 1 AND 2097152),  -- 2 Mo au plus
+  width         SMALLINT     CHECK (width > 0),                                   -- pour réserver la place à l'affichage
+  height        SMALLINT     CHECK (height > 0),
+  data          BYTEA        NOT NULL,
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_message_attachments_message UNIQUE (message_id)
+);
 
 -- ---------------------------------------------------------
 -- Notifications (identique à database/migrations/002_notifications.sql)
@@ -244,6 +262,8 @@ CREATE TABLE settings (
   support_whatsapp             VARCHAR(20) CHECK (support_whatsapp ~ '^[0-9]{8,15}$'), -- contact support, optionnel
   reservation_message_template TEXT NOT NULL DEFAULT
     'Bonjour ! Je viens de réserver {kilos} kg sur votre voyage {trajet} du {date}. Nom : {nom}. Code de suivi : {code}.',
+  -- Numéros de paiement de MoveColis : billets d'avion et voyages publiés par MoveColis
+  payment_info                 TEXT NOT NULL DEFAULT '' CHECK (char_length(payment_info) <= 1000),
   updated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -612,6 +632,7 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   currency             VARCHAR(3)   NOT NULL,
 
   status               flight_order_status NOT NULL DEFAULT 'PENDING',
+  payment_info_sent_at TIMESTAMPTZ,                    -- dernier envoi des numéros de paiement au client
   receipt_email        VARCHAR(160),                   -- dernier envoi du billet par e-mail
   receipt_sent_at      TIMESTAMPTZ,
   created_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),

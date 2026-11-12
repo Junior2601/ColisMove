@@ -67,6 +67,7 @@ export function toFlightOrder(row) {
     totalAmount: row.total_amount,
     currency: row.currency,
     status: row.status,
+    paymentInfoSentAt: row.payment_info_sent_at, // dernier envoi des numéros de paiement au client
     receiptEmail: row.receipt_email,
     receiptSentAt: row.receipt_sent_at,
     link: row.link, // chemin aviasales.ru : l'URL complète est construite par le service
@@ -147,6 +148,15 @@ export async function countByStatus(db = pool) {
 
 export async function updateStatus(id, status, db = pool) {
   await db.query(`UPDATE flight_orders SET status = $2 WHERE id = $1`, [id, status]);
+}
+
+// Numéros de paiement envoyés au client : renvoie la date d'envoi
+export async function markPaymentInfoSent(id, db = pool) {
+  const { rows } = await db.query(
+    `UPDATE flight_orders SET payment_info_sent_at = NOW() WHERE id = $1 RETURNING payment_info_sent_at`,
+    [id]
+  );
+  return rows[0]?.payment_info_sent_at ?? null;
 }
 
 // Billet envoyé par e-mail : on garde l'adresse utilisée (et on complète celle de la demande si elle manquait)

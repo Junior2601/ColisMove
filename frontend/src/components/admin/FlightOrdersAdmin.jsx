@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ExternalLink, Mail, MessageCircle, Search, X } from "lucide-react";
+import { Check, CreditCard, ExternalLink, Mail, MessageCircle, Search, X } from "lucide-react";
 import ReservationStatusModal from "../ReservationStatusModal";
 import SendTicketModal from "./SendTicketModal";
 import { PassengerList } from "../flights/Passengers";
 import { Badge, ChipRow, ErrorState, FilterChip, LoadMore, Loader, Toast, btnDanger, btnOutline, btnPrimary, btnSm } from "../ui";
 import { adminApi } from "../../api/admin";
+import { errorMessage } from "../../api/client";
 import { usePaginated } from "../../hooks/useApi";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useFlash } from "../../hooks/useFlash";
@@ -23,7 +24,7 @@ const STATUS_FILTERS = [
   { key: "CANCELLED", label: "Annulées" },
 ];
 
-function OrderCard({ order, onAction }) {
+function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
   const { flight } = order;
   const status = FLIGHT_ORDER_STATUS[order.status];
   const next = NEXT_FLIGHT_ORDER_STEP[order.status];
@@ -61,6 +62,11 @@ function OrderCard({ order, onAction }) {
             {formatKg(order.bags.freedKilos)} libérés pour MoveColis
           </div>
         )}
+        {order.status === "PENDING" && order.paymentInfoSentAt && (
+          <div className="text-ink font-semibold">
+            💳 Numéros de paiement envoyés {timeAgo(order.paymentInfoSentAt)} : en attente de la capture du client
+          </div>
+        )}
         {order.receiptSentAt && (
           <div className="text-success font-semibold">
             📧 Billet envoyé à {order.receiptEmail} le {formatDateTime(order.receiptSentAt)}
@@ -93,6 +99,16 @@ function OrderCard({ order, onAction }) {
               <ExternalLink size={15} /> Acheter sur Aviasales
             </a>
           )}
+          {/* Étape avant « Paiement reçu » : numéros de paiement envoyés dans la conversation */}
+          {order.status === "PENDING" && (
+            <button type="button" onClick={() => onSendPaymentInfo(order)} disabled={sendingPaymentInfo}
+              className={`${btnOutline} ${btnSm}`}>
+              <CreditCard size={15} />
+              {sendingPaymentInfo
+                ? "Envoi…"
+                : order.paymentInfoSentAt ? "Renvoyer le numéro de paiement" : "Envoyer le numéro de paiement"}
+            </button>
+          )}
           {next && (
             <button type="button" onClick={() => onAction(order, next.status)} className={`${btnPrimary} ${btnSm}`}>
               <Check size={15} /> {next.action}
@@ -124,7 +140,22 @@ export default function FlightOrdersAdmin() {
     [filter, search]
   );
   const [pending, setPending] = useState(null); // { order, status }
+  const [sendingPaymentFor, setSendingPaymentFor] = useState(null); // id de la demande en cours d'envoi
   const [flash, showFlash] = useFlash();
+
+  // Numéros de paiement (réglages) envoyés au client dans la conversation de la demande
+  async function sendPaymentInfo(order) {
+    setSendingPaymentFor(order.id);
+    try {
+      const updated = await adminApi.sendFlightPaymentInfo(order.id);
+      orders.setItems((items) => items.map((o) => (o.id === updated.id ? updated : o)));
+      showFlash(`Numéros de paiement envoyés à ${updated.clientName} dans la conversation.`);
+    } catch (err) {
+      showFlash(errorMessage(err), "danger");
+    } finally {
+      setSendingPaymentFor(null);
+    }
+  }
 
   // Nouvelle demande ou changement de statut (ailleurs) : on rafraîchit, une fois le calme revenu
   const timer = useRef(null);
@@ -171,7 +202,8 @@ export default function FlightOrdersAdmin() {
       ) : (
         <div className={`flex flex-col gap-3 pb-4 transition-opacity ${orders.loading ? "opacity-60" : ""}`}>
           {orders.items.map((order) => (
-            <OrderCard key={order.id} order={order} onAction={(o, status) => setPending({ order: o, status })} />
+            <OrderCard key={order.id} order={order} onAction={(o, status) => setPending({ order: o, status })}
+              onSendPaymentInfo={sendPaymentInfo} sendingPaymentInfo={sendingPaymentFor === order.id} />
           ))}
         </div>
       )}

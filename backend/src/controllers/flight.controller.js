@@ -1,5 +1,6 @@
 import * as flightService from "../services/flight.service.js";
 import * as flightOrderService from "../services/flightOrder.service.js";
+import * as conversationService from "../services/conversation.service.js";
 
 /* ---------- Côté client (accueil, page d'un billet) ---------- */
 
@@ -60,6 +61,10 @@ export async function recentSearches(req, res) {
 
 export async function listOrders(req, res) {
   res.json(await flightOrderService.listOrders(req.valid.query));
+}
+
+export async function sendPaymentInfo(req, res) {
+  res.json(await conversationService.sendFlightPaymentInfo(req.valid.params.id, req.user));
 }
 
 export async function sendTicket(req, res) {

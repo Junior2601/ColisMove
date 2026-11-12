@@ -44,6 +44,7 @@ export default function Parametres() {
     setForm({
       supportWhatsapp: data.supportWhatsapp ? `+${data.supportWhatsapp}` : "",
       template: data.reservationMessageTemplate,
+      paymentInfo: data.paymentInfo ?? "",
     });
   }, [data]);
 
@@ -62,6 +63,7 @@ export default function Parametres() {
   const preview = interpolate(form.template, PREVIEW_DATA);
   const isDirty =
     form.template !== data.reservationMessageTemplate ||
+    form.paymentInfo.trim() !== (data.paymentInfo ?? "") ||
     digitsOnly(form.supportWhatsapp) !== (data.supportWhatsapp ?? "");
 
   // Insère {variable} à la position du curseur dans le message
@@ -85,6 +87,7 @@ export default function Parametres() {
       const updated = await adminApi.updateSettings({
         supportWhatsapp: form.supportWhatsapp.trim() || null,
         reservationMessageTemplate: form.template,
+        paymentInfo: form.paymentInfo.trim(),
       });
       setData(updated); // le formulaire se recale sur les valeurs enregistrées
       setSaved(true);
@@ -152,6 +155,20 @@ export default function Parametres() {
               Exemple avec : 5 kg, Abidjan → Moscou, sam. 25 juil., Koné Awa, MC-20260725-AB3D.
             </div>
           </div>
+
+          <Field
+            label="Numéros de paiement de MoveColis"
+            hint={`Envoyés au client avec le bouton « Envoyer le numéro de paiement » : billets d'avion et voyages publiés par MoveColis (les voyageurs renseignent les leurs dans leur profil). Un moyen de paiement par ligne · ${form.paymentInfo.length}/1000`}
+          >
+            <textarea
+              value={form.paymentInfo}
+              onChange={(e) => setForm((f) => ({ ...f, paymentInfo: e.target.value }))}
+              rows={3}
+              maxLength={1000}
+              placeholder={"Orange Money : +225 07 00 00 00 00 (MoveColis)\nWave : +225 05 00 00 00 00 (MoveColis)"}
+              className={inputClass}
+            />
+          </Field>
 
           <Field
             label="WhatsApp du support (facultatif)"

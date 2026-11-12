@@ -84,6 +84,8 @@ router.patch(
   validate({ params: idParam, body: updateFlightOrderStatusBody }),
   flight.updateOrderStatus
 );
+// Numéros de paiement (réglages) envoyés au client dans la conversation, avant « Paiement reçu »
+router.post("/flight-orders/:id/payment-info", validate({ params: idParam }), flight.sendPaymentInfo);
 // Billet + reçu envoyés par e-mail (passe la demande à « Billet émis ») ; pièces jointes : corps plus lourd (voir app.js)
 router.post(
   "/flight-orders/:id/ticket",

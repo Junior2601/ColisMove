@@ -25,6 +25,42 @@ export async function sendMessage(req, res) {
   res.status(201).json(message);
 }
 
+// Avant de lire une photo envoyée : seul un participant de la conversation peut en envoyer
+export async function checkAccess(req, res, next) {
+  await conversationService.resolveAccess(req.valid.params.id, req.actor);
+  next();
+}
+
+// Photo (corps brut de la requête) : diffusée en temps réel comme un message
+export async function sendImage(req, res) {
+  const { caption, width, height, clientId } = req.valid.query;
+  const message = await conversationService.sendImage(req.valid.params.id, req.actor, {
+    data: req.body,
+    caption,
+    width,
+    height,
+    clientId,
+  });
+  res.status(201).json(message);
+}
+
+export async function getAttachment(req, res) {
+  const { id, attachmentId } = req.valid.params;
+  const { contentType, data } = await conversationService.getAttachment(id, attachmentId, req.actor);
+  // Une photo ne change jamais : le navigateur la garde, sans la partager avec un cache public
+  res.set({ "Content-Type": contentType, "Cache-Control": "private, max-age=31536000, immutable", "Content-Disposition": "inline" });
+  res.send(data);
+}
+
+// Paiement : numéros envoyés au client (billet ou kilos), puis « Paiement reçu » (kilos)
+export async function sendPaymentInfo(req, res) {
+  res.json(await conversationService.sendPaymentInfo(req.valid.params.id, req.actor));
+}
+
+export async function markPaymentReceived(req, res) {
+  res.json(await conversationService.markPaymentReceived(req.valid.params.id, req.actor, req.valid.body.note));
+}
+
 export async function markRead(req, res) {
   res.json(await conversationService.markRead(req.valid.params.id, req.actor));
 }

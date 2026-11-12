@@ -4,6 +4,7 @@ import { Check, History, MessageCircle, Search, X } from "lucide-react";
 import Layout from "../../components/Layout";
 import ReservationHistory from "../../components/ReservationHistory";
 import ReservationStatusModal from "../../components/ReservationStatusModal";
+import ReservationPaymentButtons, { PaidBadge, PaymentStatusLine } from "../../components/ReservationPayment";
 import {
   Badge, ChipRow, ErrorState, FilterChip, LoadMore, Loader, Toast,
   btnDanger, btnOutline, btnPrimary, btnSm,
@@ -27,7 +28,7 @@ const STATUS_FILTERS = [
   { key: "cancelled", label: "Annulées", statuses: ["CANCELLED"] },
 ];
 
-function ReservationCard({ r, onChangeStatus }) {
+function ReservationCard({ r, onChangeStatus, onPaymentUpdated, onFlash }) {
   const [showHistory, setShowHistory] = useState(false);
   const status = RESERVATION_STATUS[r.status];
   const next = NEXT_RESERVATION_STEP[r.status];
@@ -51,8 +52,12 @@ function ReservationCard({ r, onChangeStatus }) {
           <div className="text-xs text-muted mt-0.5">
             <span className="font-mono font-bold text-ink">{r.trackingCode}</span> · {formatPhone(r.clientPhone)}
           </div>
+          <PaymentStatusLine reservation={r} />
         </div>
-        <Badge tone={status.tone}>{status.label}</Badge>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <Badge tone={status.tone}>{status.label}</Badge>
+          <PaidBadge reservation={r} />
+        </div>
       </div>
 
       <div className="flex gap-2 flex-wrap mt-1">
@@ -69,6 +74,9 @@ function ReservationCard({ r, onChangeStatus }) {
             <Check size={15} /> {next.action}
           </button>
         )}
+        {/* Paiement : vos numéros envoyés au client, puis « Paiement reçu » à l'arrivée de sa capture */}
+        <ReservationPaymentButtons reservation={r} trip={r.trip} conversationId={r.conversationId}
+          onUpdated={onPaymentUpdated} onFlash={onFlash} />
         <button
           type="button"
           onClick={() => setShowHistory((v) => !v)}
@@ -192,6 +200,8 @@ export default function MesReservations() {
                 key={r.id}
                 r={r}
                 onChangeStatus={(reservation, nextStatus) => setChanging({ reservation, nextStatus })}
+                onPaymentUpdated={(patch) => list.setItems((items) => items.map((x) => (x.id === r.id ? { ...x, ...patch } : x)))}
+                onFlash={showFlash}
               />
             ))}
           </div>

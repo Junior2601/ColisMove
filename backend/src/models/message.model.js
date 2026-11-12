@@ -8,9 +8,17 @@ export function toMessage(row) {
     senderType: row.sender_type, // CUSTOMER | OWNER | ADMIN | SYSTEM
     senderId: row.sender_id,
     body: row.body,
+    // Photo jointe (le fichier se lit à part : GET /conversations/:id/attachments/:attachmentId)
+    attachment: row.attachment_id
+      ? { id: row.attachment_id, contentType: row.attachment_type, width: row.attachment_width, height: row.attachment_height }
+      : null,
     createdAt: row.created_at,
   };
 }
+
+// Colonnes de la photo jointe, avec « LEFT JOIN message_attachments a ON a.message_id = m.id »
+const ATTACHMENT_COLUMNS = `a.id AS attachment_id, a.content_type AS attachment_type,
+  a.width AS attachment_width, a.height AS attachment_height`;
 
 export async function create({ conversationId, senderType, senderId = null, body }, db = pool) {
   const { rows } = await db.query(
@@ -27,9 +35,11 @@ export async function create({ conversationId, senderType, senderId = null, body
  */
 export async function listPage(conversationId, { before, limit }, db = pool) {
   const { rows } = await db.query(
-    `SELECT * FROM messages
-     WHERE conversation_id = $1 AND ($2::bigint IS NULL OR id < $2)
-     ORDER BY id DESC
+    `SELECT m.*, ${ATTACHMENT_COLUMNS}
+     FROM messages m
+     LEFT JOIN message_attachments a ON a.message_id = m.id
+     WHERE m.conversation_id = $1 AND ($2::bigint IS NULL OR m.id < $2)
+     ORDER BY m.id DESC
      LIMIT $3`,
     [conversationId, before ?? null, limit + 1] // +1 pour savoir s'il en reste
   );
@@ -64,4 +74,37 @@ export async function createSystemForFlightOrder(flightOrderId, body, db = pool)
     [flightOrderId, body]
   );
   return rows.map(toMessage);
+}
+
+/* ---------- Photos jointes ---------- */
+
+/** Photo d'un message : { contentType, data (Buffer), width, height } → { id, contentType, width, height } */
+export async function addAttachment(messageId, { contentType, data, width = null, height = null }, db = pool) {
+  const { rows } = await db.query(
+    `INSERT INTO message_attachments (message_id, content_type, size_bytes, width, height, data)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, content_type, width, height`,
+    [messageId, contentType, data.length, width, height, data]
+  );
+  const row = rows[0];
+  return { id: row.id, contentType: row.content_type, width: row.width, height: row.height };
+}
+
+export async function countAttachments(conversationId, db = pool) {
+  const { rows } = await db.query(
+    `SELECT COUNT(*) AS count FROM message_attachments a JOIN messages m ON m.id = a.message_id
+     WHERE m.conversation_id = $1`,
+    [conversationId]
+  );
+  return rows[0].count;
+}
+
+/** Fichier d'une photo, seulement s'il appartient bien à cette conversation */
+export async function findAttachment(conversationId, attachmentId, db = pool) {
+  const { rows } = await db.query(
+    `SELECT a.content_type, a.data FROM message_attachments a JOIN messages m ON m.id = a.message_id
+     WHERE a.id = $1 AND m.conversation_id = $2`,
+    [attachmentId, conversationId]
+  );
+  return rows[0] ? { contentType: rows[0].content_type, data: rows[0].data } : null;
 }

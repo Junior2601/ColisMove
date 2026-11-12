@@ -31,6 +31,8 @@ export function toReservation(row) {
     totalAmount: row.total_amount,
     currency: row.currency,
     status: row.status,
+    paymentInfoSentAt: row.payment_info_sent_at ?? null, // dernier envoi des numéros de paiement au client
+    paidAt: row.paid_at ?? null, // paiement reçu (indépendant des étapes du colis)
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -169,6 +171,21 @@ export async function findByIdForUpdate(id, db) {
 
 export async function updateStatus(id, status, db = pool) {
   await db.query(`UPDATE reservations SET status = $2 WHERE id = $1`, [id, status]);
+}
+
+/* ---------- Paiement (indépendant des étapes du colis) ---------- */
+
+// Numéros de paiement envoyés au client : renvoie la date d'envoi
+export async function markPaymentInfoSent(id, db = pool) {
+  const { rows } = await db.query(
+    `UPDATE reservations SET payment_info_sent_at = NOW() WHERE id = $1 RETURNING payment_info_sent_at`,
+    [id]
+  );
+  return rows[0]?.payment_info_sent_at ?? null;
+}
+
+export async function markPaid(id, db = pool) {
+  await db.query(`UPDATE reservations SET paid_at = NOW() WHERE id = $1`, [id]);
 }
 
 export async function countByTripAndStatuses(tripId, statuses, db = pool) {

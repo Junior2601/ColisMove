@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { conversationsApi } from "../api/conversations";
 import { getGuestToken } from "../lib/guestAccess";
+import { compressImage } from "../lib/images";
 import { getSocket } from "../lib/socket";
 
 const byDate = (a, b) => new Date(a.createdAt) - new Date(b.createdAt);
@@ -16,7 +17,8 @@ function mergeMessage(list, message) {
     const index = list.findIndex((m) => m.id === message.clientId);
     if (index !== -1) {
       const next = [...list];
-      next[index] = { ...message, pending: false };
+      // Photo envoyée depuis cet appareil : on garde son aperçu local (pas de nouveau téléchargement)
+      next[index] = { ...message, localUrl: list[index].localUrl, pending: false };
       return next;
     }
   }
@@ -224,17 +226,61 @@ export function useConversation(conversationId) {
     [id, deliver, stopTyping]
   );
 
-  // Renvoyer un message en échec
+  /* ---------- Photo (demande de billet : capture du paiement…) ---------- */
+  // upload = { blob, width, height, caption } : gardé sur le message pour pouvoir le renvoyer en cas d'échec
+  const deliverImage = useCallback(
+    async ({ blob, width, height, caption }, clientId) => {
+      const message = await conversationsApi.sendImage(id, blob, { caption, width, height, clientId });
+      setMessages((list) => mergeMessage(list, { ...message, clientId }));
+    },
+    [id]
+  );
+
+  /**
+   * Envoie une photo : réduite dans le navigateur, affichée tout de suite, confirmée par le serveur.
+   * Lève une erreur lisible si l'image ne peut pas être ouverte (rien n'est alors affiché).
+   */
+  const sendImage = useCallback(
+    async (file, caption) => {
+      const { blob, width, height } = await compressImage(file);
+      const clientId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const upload = { blob, width, height, caption };
+      setMessages((list) => [
+        ...list,
+        {
+          id: clientId,
+          clientId,
+          conversationId: id,
+          senderType: sideRef.current,
+          body: caption || "📷 Photo",
+          attachment: { id: null, width, height },
+          localUrl: URL.createObjectURL(blob),
+          upload,
+          createdAt: new Date().toISOString(),
+          pending: true,
+        },
+      ]);
+      try {
+        await deliverImage(upload, clientId);
+      } catch {
+        setMessages((list) => list.map((m) => (m.id === clientId ? { ...m, pending: false, failed: true } : m)));
+      }
+    },
+    [id, deliverImage]
+  );
+
+  // Renvoyer un message (ou une photo) en échec
   const retry = useCallback(
     async (failed) => {
       setMessages((list) => list.map((m) => (m.id === failed.id ? { ...m, pending: true, failed: false } : m)));
       try {
-        await deliver(failed.body, failed.id);
+        if (failed.upload) await deliverImage(failed.upload, failed.id);
+        else await deliver(failed.body, failed.id);
       } catch {
         setMessages((list) => list.map((m) => (m.id === failed.id ? { ...m, pending: false, failed: true } : m)));
       }
     },
-    [deliver]
+    [deliver, deliverImage]
   );
 
   /* ---------- Messages plus anciens ---------- */
@@ -268,6 +314,11 @@ export function useConversation(conversationId) {
     (patch) => setDetail((d) => (d?.flightOrder ? { ...d, flightOrder: { ...d.flightOrder, ...patch } } : d)),
     []
   );
+  // Réservation de kilos mise à jour (paiement : numéros envoyés, paiement reçu)
+  const patchReservation = useCallback(
+    (patch) => setDetail((d) => (d?.reservation ? { ...d, reservation: { ...d.reservation, ...patch } } : d)),
+    []
+  );
 
   return {
     detail,
@@ -279,10 +330,12 @@ export function useConversation(conversationId) {
     otherTyping,
     otherReadAt,
     send,
+    sendImage,
     retry,
     loadOlder,
     notifyTyping,
     changeStatus,
     patchFlightOrder,
+    patchReservation,
   };
 }

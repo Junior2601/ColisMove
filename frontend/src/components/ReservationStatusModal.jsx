@@ -19,6 +19,14 @@ const VARIANTS = {
       CANCELLED: "Ex. Changement de programme",
     },
   },
+  // Kilos : « Paiement reçu », indépendant des étapes du colis
+  payment: {
+    labels: { PAID: { label: "Payée" } },
+    cancelLabel: "",
+    cancelHint: "",
+    stepHint: "Le paiement apparaîtra dans la conversation et le client sera prévenu. L'étape du colis ne change pas.",
+    placeholders: { PAID: "Ex. Orange Money reçu, réf. 4521" },
+  },
   flight: {
     labels: FLIGHT_ORDER_STATUS,
     cancelLabel: "Annuler la demande",
@@ -35,7 +43,7 @@ const VARIANTS = {
 /**
  * Confirmation d'un changement de statut avec note facultative.
  * onConfirm(note) fait l'appel API ; la modale gère l'attente et l'erreur.
- * variant : "reservation" (kilos) ou "flight" (demande de billet d'avion)
+ * variant : "reservation" (kilos), "payment" (paiement reçu, kilos) ou "flight" (demande de billet d'avion)
  */
 export default function ReservationStatusModal({ nextStatus, summary, title, onConfirm, onClose, variant = "reservation" }) {
   const { labels, cancelLabel, cancelHint, stepHint, placeholders } = VARIANTS[variant];

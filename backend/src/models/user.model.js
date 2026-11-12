@@ -3,7 +3,7 @@ import { buildSetClause, likePattern } from "../utils/sql.js";
 
 // Jamais de password_hash dans les colonnes publiques
 const COLUMNS =
-  "id, first_name, last_name, email, phone, city, role, status, status_changed_at, password_changed_at, created_at";
+  "id, first_name, last_name, email, phone, city, payment_info, role, status, status_changed_at, password_changed_at, created_at";
 
 export function toUser(row) {
   if (!row) return null;
@@ -14,6 +14,7 @@ export function toUser(row) {
     email: row.email,
     phone: row.phone,
     city: row.city,
+    paymentInfo: row.payment_info ?? "", // numéros de paiement d'un voyageur, envoyés à ses clients
     role: row.role,
     status: row.status,
     statusChangedAt: row.status_changed_at,
@@ -99,6 +100,7 @@ const PROFILE_COLUMNS = {
   email: "email",
   phone: "phone",
   city: "city",
+  paymentInfo: "payment_info",
 };
 
 export async function updateProfile(id, fields, db = pool) {

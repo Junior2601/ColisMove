@@ -45,23 +45,28 @@ function toQueryString(params = {}) {
   return qs ? `?${qs}` : "";
 }
 
-async function request(method, path, { body, query, headers: extraHeaders } = {}) {
-  const headers = { Accept: "application/json", ...extraHeaders };
+/**
+ * body : objet envoyé en JSON · file : Blob envoyé tel quel (photo) · asBlob : réponse lue comme fichier (Blob)
+ */
+async function request(method, path, { body, file, asBlob = false, query, headers: extraHeaders } = {}) {
+  const headers = { Accept: asBlob ? "*/*" : "application/json", ...extraHeaders };
   const token = tokenStorage.get();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (file) headers["Content-Type"] = file.type || "application/octet-stream";
 
   let response;
   try {
     response = await fetch(`${API_URL}${path}${toQueryString(query)}`, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: file ?? (body !== undefined ? JSON.stringify(body) : undefined),
     });
   } catch {
     throw new ApiError(0, "Impossible de joindre le serveur. Vérifiez votre connexion.");
   }
 
+  if (asBlob && response.ok) return response.blob();
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
@@ -70,6 +75,7 @@ async function request(method, path, { body, query, headers: extraHeaders } = {}
       tokenStorage.clear();
       window.dispatchEvent(new Event("movecolis:unauthorized"));
     }
+    if (response.status === 413) throw new ApiError(413, "Fichier trop lourd.");
     throw new ApiError(response.status, data?.error ?? `Erreur ${response.status}`, data?.details);
   }
   return data;
@@ -81,4 +87,8 @@ export const api = {
   post: (path, body, options) => request("POST", path, { body: body ?? {}, ...options }),
   patch: (path, body, options) => request("PATCH", path, { body: body ?? {}, ...options }),
   delete: (path, options) => request("DELETE", path, options),
+  // Fichier envoyé tel quel dans le corps (photo), informations en plus dans l'URL
+  upload: (path, file, query, options) => request("POST", path, { file, query, ...options }),
+  // Fichier protégé (photo de la messagerie) : Blob à afficher avec URL.createObjectURL
+  blob: (path, options) => request("GET", path, { asBlob: true, ...options }),
 };

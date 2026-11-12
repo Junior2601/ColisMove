@@ -42,6 +42,8 @@ export const updateMeBody = z
     email: z.string().trim().toLowerCase().email("Email invalide.").max(160),
     phone: phoneSchema,
     city: nullableField(z.string().trim().min(2, "Nom de ville trop court.").max(80)),
+    // Voyageur : ses numéros de paiement (« Orange Money : +225 07… (Nom) », un par ligne)
+    paymentInfo: z.string().trim().max(1000, "1000 caractères maximum."),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, "Aucun champ à modifier.");

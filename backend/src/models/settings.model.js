@@ -4,6 +4,7 @@ import { buildSetClause } from "../utils/sql.js";
 const UPDATABLE_COLUMNS = {
   supportWhatsapp: "support_whatsapp",
   reservationMessageTemplate: "reservation_message_template",
+  paymentInfo: "payment_info",
 };
 
 export function toSettings(row) {
@@ -11,6 +12,8 @@ export function toSettings(row) {
   return {
     supportWhatsapp: row.support_whatsapp,
     reservationMessageTemplate: row.reservation_message_template,
+    // Numéros de paiement de MoveColis (billets d'avion, voyages MoveColis), envoyés au client depuis la conversation
+    paymentInfo: row.payment_info ?? "",
     updatedAt: row.updated_at,
   };
 }

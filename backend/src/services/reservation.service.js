@@ -19,6 +19,7 @@ import { generateTrackingCode } from "../utils/trackingCode.js";
 import { generateToken, hashToken } from "../utils/token.js";
 import { interpolate } from "../utils/template.js";
 import { formatLocalDate } from "../utils/date.js";
+import { formatKilos, formatMoney } from "../utils/money.js";
 import { AppError, conflict, forbidden, notFound } from "../utils/AppError.js";
 
 /* ===================== Admin ===================== */
@@ -220,6 +221,62 @@ export async function updateReservationStatus(
     realtime.emitToConversation(updated.conversationId, "reservation:updated", {
       conversationId: updated.conversationId,
       reservation: { id: updated.id, status: updated.status },
+    });
+  }
+  return updated;
+}
+
+/* ===================== Paiement (indépendant des étapes du colis) ===================== */
+
+/**
+ * Message « numéros de paiement » envoyé au client (bouton « Envoyer le numéro de paiement »).
+ * paymentInfo : numéros du voyageur (son profil) ou de MoveColis (paramètres)
+ */
+export function paymentInfoMessage(reservation, trip, paymentInfo) {
+  return [
+    `💳 Paiement de votre réservation ${reservation.trackingCode}`,
+    `${routeText(trip)} · ${formatLocalDate(trip.departureAt)} · ${formatKilos(reservation.kilos)}`,
+    `Montant à payer : ${formatMoney(reservation.totalAmount, reservation.currency)}`,
+    "",
+    paymentInfo.trim(),
+    "",
+    "Une fois le paiement fait, envoyez la capture d'écran ici avec le bouton 📷 en bas de la conversation.",
+  ].join("\n");
+}
+
+/**
+ * « Paiement reçu » : la réservation est marquée payée (sans changer l'étape du colis),
+ * un message apparaît dans la conversation et le client est prévenu.
+ */
+export async function markPaid(id, { actorId = null, note = null } = {}) {
+  const { updated, messages } = await withTransaction(async (db) => {
+    const current = await reservationModel.findByIdForUpdate(id, db);
+    if (!current) throw notFound("Réservation introuvable.");
+    if (current.status === "CANCELLED") throw conflict("Cette réservation est annulée.");
+    if (current.paidAt) throw conflict("Le paiement de cette réservation est déjà enregistré.");
+    await reservationModel.markPaid(id, db);
+    const text = `💰 Paiement reçu.${note ? ` — ${note}` : ""}`;
+    const systemMessages = await messageModel.createSystemForReservations([id], text, db);
+    return { updated: await reservationModel.findById(id, db), messages: systemMessages };
+  });
+
+  // Client (s'il a un compte) et propriétaire du voyage, sauf l'auteur (ex. l'équipe sur le voyage d'un voyageur)
+  const recipients = [updated.clientId, updated.trip.owner.id].filter((userId) => userId && userId !== actorId);
+  if (updated.conversationId && recipients.length) {
+    await notificationService.notifySafely(recipients, {
+      type: "RESERVATION_STATUS",
+      title: "Paiement reçu 💰",
+      body: `${updated.trackingCode} · ${routeText(updated.trip)} · ${formatMoney(updated.totalAmount, updated.currency)}${note ? ` — ${note}` : ""}`,
+      link: paths.conversation(updated.conversationId),
+      groupKey: notificationService.conversationGroup(updated.conversationId),
+    });
+  }
+
+  realtime.publishMessages(messages, { ownerId: updated.trip.owner.id, clientId: updated.clientId });
+  if (updated.conversationId) {
+    realtime.emitToConversation(updated.conversationId, "reservation:updated", {
+      conversationId: updated.conversationId,
+      reservation: { id: updated.id, paidAt: updated.paidAt },
     });
   }
   return updated;

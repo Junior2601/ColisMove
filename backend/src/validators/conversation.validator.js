@@ -17,6 +17,25 @@ export const sendMessageBody = z.object({
   clientId: z.string().max(64).optional(),
 });
 
+// Photo : le fichier est le corps brut de la requête, ces informations passent dans l'URL
+const dimension = z.coerce.number().int().min(1).max(10000).optional();
+export const sendImageQuery = z.object({
+  caption: z.string().trim().max(200).optional(), // texte du message (« 📷 Capture du paiement »…)
+  width: dimension,
+  height: dimension,
+  clientId: z.string().max(64).optional(),
+});
+
+export const attachmentParams = z.object({
+  id: z.coerce.number().int().positive().max(2147483647),
+  attachmentId: z.coerce.number().int().positive(),
+});
+
+// Kilos : « Paiement reçu », avec une note facultative (ex. « Orange Money reçu, réf. 4521 »)
+export const paymentReceivedBody = z.object({
+  note: nullableField(z.string().trim().max(255)),
+});
+
 // Statuts d'une réservation de kilos ou d'une demande de billet (le service vérifie selon la conversation)
 const CONVERSATION_STATUSES = [...new Set([...RESERVATION_STATUSES, ...FLIGHT_ORDER_STATUSES])];
 

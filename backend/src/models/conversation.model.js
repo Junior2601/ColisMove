@@ -59,7 +59,7 @@ export async function findDetail(id, db = pool) {
     `SELECT c.id, c.owner_last_read_at, c.customer_last_read_at, c.created_at, c.flight_order_id,
             r.id AS reservation_id, r.tracking_code, r.client_id, r.client_name, r.client_phone,
             r.kilos, r.price_per_kilo, r.total_amount, r.currency, r.status AS reservation_status,
-            r.parcel_description,
+            r.parcel_description, r.payment_info_sent_at, r.paid_at,
             t.id AS trip_id, t.departure_city, t.arrival_city, t.stop_city, t.departure_at, t.arrival_at,
             t.status AS trip_status,
             o.id AS owner_id, o.first_name AS owner_first_name, o.last_name AS owner_last_name, o.role AS owner_role
@@ -98,6 +98,8 @@ export async function findDetail(id, db = pool) {
       currency: row.currency,
       status: row.reservation_status,
       parcelDescription: row.parcel_description,
+      paymentInfoSentAt: row.payment_info_sent_at, // numéros de paiement envoyés au client
+      paidAt: row.paid_at, // paiement reçu (indépendant des étapes du colis)
     },
     trip: {
       id: row.trip_id,

@@ -36,11 +36,11 @@ export default function Confidentialite() {
         <Table
           head={["Catégorie", "Données", "Origine"]}
           rows={[
-            ["Compte", "Prénom, nom, e-mail, téléphone, ville de résidence (voyageurs), mot de passe (enregistré sous forme chiffrée irréversible), rôle, date d'acceptation des CGU", "Vous, à l'inscription et dans votre profil"],
+            ["Compte", "Prénom, nom, e-mail, téléphone, ville de résidence et numéros de paiement (voyageurs), mot de passe (enregistré sous forme chiffrée irréversible), rôle, date d'acceptation des CGU", "Vous, à l'inscription et dans votre profil"],
             ["Voyages publiés", "Villes, dates et heures, escale, kilos proposés, prix par kilo", "Le voyageur"],
             ["Réservations", "Nom, téléphone, description du colis, kilos, montant, code de suivi, étapes du colis", "Vous (avec ou sans compte), le voyageur pour les étapes"],
             ["Demandes de billet d'avion", "Vos nom, téléphone et e-mail ; pour chaque passager : nom et prénoms, genre, date de naissance, nationalité, numéro de passeport (utilisés uniquement pour émettre les billets)", "Vous (avec ou sans compte)"],
-            ["Messagerie", "Contenu des messages, date d'envoi et de lecture", "Les participants à la conversation"],
+            ["Messagerie", "Contenu des messages, date d'envoi et de lecture ; photos envoyées (capture du paiement…)", "Les participants à la conversation"],
             ["Notifications", "Notifications reçues ; si vous les activez : adresse technique de l'appareil, clés de chiffrement, type de navigateur, fuseau horaire", "Votre appareil"],
             ["Préférences de trajets (clients connectés)", "Trajets favoris, trajets recherchés, voyages consultés et déjà réservés ; choix d'alertes", "Vous, et votre utilisation du site"],
             ["Données techniques", "Adresse IP et journaux de connexion (sécurité), données stockées sur votre appareil", "Votre navigateur (voir la Politique de cookies)"],

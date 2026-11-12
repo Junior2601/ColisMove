@@ -45,6 +45,7 @@ function ProfileForm({ user, onSaved }) {
     email: user.email,
     phone: `+${user.phone}`,
     city: user.city ?? "",
+    paymentInfo: user.paymentInfo ?? "",
   };
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState({});
@@ -65,6 +66,7 @@ function ProfileForm({ user, onSaved }) {
     }
     if (digitsOnly(form.phone) !== user.phone) patch.phone = form.phone;
     if (isTraveler && form.city.trim() !== initial.city) patch.city = form.city.trim();
+    if (isTraveler && form.paymentInfo.trim() !== initial.paymentInfo) patch.paymentInfo = form.paymentInfo.trim();
     return patch;
   }
 
@@ -112,6 +114,18 @@ function ProfileForm({ user, onSaved }) {
       {isTraveler && (
         <Field label="Ville de résidence" error={errors.city}>
           <input value={form.city} onChange={set("city")} required autoComplete="address-level2" className={inputClass} />
+        </Field>
+      )}
+      {/* Voyageur : ses clients le paient directement ; le bouton « Envoyer le numéro de paiement » leur envoie ces numéros */}
+      {isTraveler && (
+        <Field
+          label="Mes numéros de paiement"
+          error={errors.paymentInfo}
+          hint={`Envoyés à vos clients avec le bouton « Envoyer le numéro de paiement » d'une réservation. Un moyen de paiement par ligne · ${form.paymentInfo.length}/1000`}
+        >
+          <textarea value={form.paymentInfo} onChange={set("paymentInfo")} rows={3} maxLength={1000}
+            placeholder={"Orange Money : +225 07 00 00 00 00 (Votre nom)\nWave : +225 05 00 00 00 00 (Votre nom)"}
+            className={inputClass} />
         </Field>
       )}
 
@@ -241,7 +255,7 @@ export default function Profil() {
         {/* ===== Infos du compte ===== */}
         <h2 className="text-[17px] font-extrabold mb-3">Mes informations</h2>
         {/* key : le formulaire repart des valeurs enregistrées après chaque modification */}
-        <ProfileForm key={user.email + user.phone + user.firstName + user.lastName + (user.city ?? "")} user={user} onSaved={showFlash} />
+        <ProfileForm key={user.email + user.phone + user.firstName + user.lastName + (user.city ?? "") + (user.paymentInfo ?? "")} user={user} onSaved={showFlash} />
 
         <h2 id="notifications" className="text-[17px] font-extrabold mb-3 scroll-mt-24">Application et notifications</h2>
         <AppSettings />

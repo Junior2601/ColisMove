@@ -1,13 +1,20 @@
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, Check, ExternalLink, Mail, MapPin, SendHorizontal, X } from "lucide-react";
+import {
+  ArrowLeft, Camera, Check, CreditCard, Download, ExternalLink, Mail, MapPin, SendHorizontal, X,
+} from "lucide-react";
 import Layout from "../components/Layout";
 import ReservationStatusModal from "../components/ReservationStatusModal";
+import ReservationPaymentButtons, { PaidBadge } from "../components/ReservationPayment";
 import SendTicketModal from "../components/admin/SendTicketModal";
 import { PassengerList } from "../components/flights/Passengers";
-import { Badge, ErrorState, Loader, Notice, btnDanger, btnOutline, btnPrimary, btnSm } from "../components/ui";
+import { Badge, ErrorState, Loader, Notice, Toast, btnDanger, btnOutline, btnPrimary, btnSm } from "../components/ui";
+import { adminApi } from "../api/admin";
+import { errorMessage } from "../api/client";
+import { conversationsApi } from "../api/conversations";
 import { layoutVariantFor, useAuth } from "../context/AuthContext";
 import { useConversation } from "../hooks/useConversation";
+import { useFlash } from "../hooks/useFlash";
 import {
   dayLabel, formatClock, formatDateTime, formatKg, formatMoney, formatPhone, formatTripDate, formatTripTime, ownerLabel,
   routeLabel,
@@ -36,8 +43,11 @@ function senderName(message, detail) {
   }
 }
 
-/* ===== En-tête : réservation, interlocuteur, actions ===== */
-function ConversationHeader({ detail, onAction }) {
+/* ===== En-tête : réservation, interlocuteur, actions =====
+ * Paiement (indépendant des étapes du colis) : le propriétaire envoie ses numéros de paiement,
+ * le client envoie la capture de son paiement, puis le propriétaire clique sur « Paiement reçu ».
+ */
+function ConversationHeader({ detail, onAction, onPickImage, onPaymentUpdated, onFlash }) {
   const { reservation, trip, owner, viewerSide } = detail;
   const status = RESERVATION_STATUS[reservation.status];
   const next = NEXT_RESERVATION_STEP[reservation.status];
@@ -45,6 +55,7 @@ function ConversationHeader({ detail, onAction }) {
   const canCancel = canManage
     ? CANCELLABLE_RESERVATION_STATUSES.includes(reservation.status)
     : reservation.status === "PENDING"; // le client annule seulement avant confirmation
+  const awaitingPayment = !reservation.paidAt && reservation.status !== "CANCELLED";
 
   const counterpart = {
     CUSTOMER: (
@@ -82,14 +93,39 @@ function ConversationHeader({ detail, onAction }) {
           {reservation.parcelDescription && (
             <div className="text-[13px] text-muted">📦 {reservation.parcelDescription}</div>
           )}
+          {reservation.paidAt ? (
+            <div className="text-[13px] text-success font-semibold">
+              💰 Paiement reçu le {formatDateTime(reservation.paidAt)}
+            </div>
+          ) : (
+            awaitingPayment && reservation.paymentInfoSentAt && (
+              <div className="text-[13px] text-ink font-semibold">
+                {canManage
+                  ? `💳 Numéros de paiement envoyés au client le ${formatDateTime(reservation.paymentInfoSentAt)}`
+                  : "💳 Payez avec les numéros ci-dessous, puis envoyez la capture de votre paiement."}
+              </div>
+            )
+          )}
         </div>
-        <Badge tone={status.tone}>{status.label}</Badge>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <Badge tone={status.tone}>{status.label}</Badge>
+          <PaidBadge reservation={reservation} />
+        </div>
       </div>
 
       <div className="flex gap-2 flex-wrap mt-1.5">
         {canManage && next && (
           <button type="button" onClick={() => onAction(next.status)} className={`${btnPrimary} ${btnSm}`}>
             <Check size={15} /> {next.action}
+          </button>
+        )}
+        {canManage && (
+          <ReservationPaymentButtons reservation={reservation} trip={trip} conversationId={detail.id}
+            onUpdated={onPaymentUpdated} onFlash={onFlash} />
+        )}
+        {viewerSide === "CUSTOMER" && awaitingPayment && reservation.paymentInfoSentAt && (
+          <button type="button" onClick={() => onPickImage("📷 Capture du paiement")} className={`${btnPrimary} ${btnSm}`}>
+            <Camera size={15} /> Envoyer la capture du paiement
           </button>
         )}
         <Link to={`/suivi?code=${reservation.trackingCode}`} className={`${btnOutline} ${btnSm}`}>
@@ -105,8 +141,11 @@ function ConversationHeader({ detail, onAction }) {
   );
 }
 
-/* ===== En-tête d'une demande de billet d'avion ===== */
-function FlightOrderHeader({ detail, onAction }) {
+/* ===== En-tête d'une demande de billet d'avion =====
+ * Paiement : l'équipe envoie les numéros de paiement (réglages), le client envoie la capture de son paiement,
+ * puis l'équipe clique sur « Paiement reçu ».
+ */
+function FlightOrderHeader({ detail, onAction, onSendPaymentInfo, sendingPaymentInfo, onPickImage }) {
   const { flightOrder: order, viewerSide } = detail;
   const { flight } = order;
   const status = FLIGHT_ORDER_STATUS[order.status];
@@ -115,6 +154,7 @@ function FlightOrderHeader({ detail, onAction }) {
   const canCancel = canManage
     ? CANCELLABLE_FLIGHT_ORDER_STATUSES.includes(order.status)
     : order.status === "PENDING"; // le client annule seulement avant le paiement
+  const awaitingPayment = order.status === "PENDING";
 
   return (
     <div className="border border-line-light rounded-2xl bg-white px-4 py-3.5 flex flex-col gap-1.5">
@@ -158,6 +198,13 @@ function FlightOrderHeader({ detail, onAction }) {
               </>
             )}
           </div>
+          {awaitingPayment && order.paymentInfoSentAt && (
+            <div className="text-[13px] text-ink font-semibold">
+              {canManage
+                ? `💳 Numéros de paiement envoyés au client le ${formatDateTime(order.paymentInfoSentAt)}`
+                : "💳 Payez avec les numéros ci-dessous, puis envoyez la capture de votre paiement."}
+            </div>
+          )}
           {order.receiptSentAt && (
             <div className="text-[13px] text-success font-semibold">
               📧 Billet envoyé à {order.receiptEmail} le {formatDateTime(order.receiptSentAt)}
@@ -168,6 +215,20 @@ function FlightOrderHeader({ detail, onAction }) {
       </div>
 
       <div className="flex gap-2 flex-wrap mt-1.5">
+        {/* Étape avant « Paiement reçu » : numéros de paiement envoyés dans la conversation */}
+        {canManage && awaitingPayment && (
+          <button type="button" onClick={onSendPaymentInfo} disabled={sendingPaymentInfo} className={`${btnOutline} ${btnSm}`}>
+            <CreditCard size={15} />
+            {sendingPaymentInfo
+              ? "Envoi…"
+              : order.paymentInfoSentAt ? "Renvoyer le numéro de paiement" : "Envoyer le numéro de paiement"}
+          </button>
+        )}
+        {viewerSide === "CUSTOMER" && awaitingPayment && order.paymentInfoSentAt && (
+          <button type="button" onClick={() => onPickImage("📷 Capture du paiement")} className={`${btnPrimary} ${btnSm}`}>
+            <Camera size={15} /> Envoyer la capture du paiement
+          </button>
+        )}
         {canManage && next && (
           <button type="button" onClick={() => onAction(next.status)} className={`${btnPrimary} ${btnSm}`}>
             <Check size={15} /> {next.action}
@@ -194,8 +255,74 @@ function FlightOrderHeader({ detail, onAction }) {
   );
 }
 
+/* ===== Photo d'un message : téléchargée avec le jeton (réservée aux participants) ===== */
+function MessageImage({ message, onOpen }) {
+  const { attachment, localUrl, conversationId } = message;
+  const [loaded, setLoaded] = useState({ url: null, failed: false });
+
+  useEffect(() => {
+    if (localUrl || !attachment?.id) return undefined; // photo envoyée depuis cet appareil : aperçu local
+    let active = true;
+    let objectUrl = null;
+    conversationsApi
+      .attachment(conversationId, attachment.id)
+      .then((blob) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setLoaded({ url: objectUrl, failed: false });
+      })
+      .catch(() => active && setLoaded({ url: null, failed: true }));
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [conversationId, attachment?.id, localUrl]);
+
+  const src = localUrl ?? loaded.url;
+  // Place réservée aux bonnes proportions : la conversation ne saute pas quand la photo arrive
+  const ratio = attachment?.width && attachment?.height ? attachment.width / attachment.height : 3 / 4;
+  const width = Math.round(Math.min(240, 300 * ratio));
+
+  return (
+    <button type="button" onClick={() => src && onOpen(src)} disabled={!src} aria-label="Agrandir la photo"
+      style={{ width, aspectRatio: String(ratio) }}
+      className="block max-w-full rounded-2xl overflow-hidden bg-line-light border border-line-light">
+      {src ? (
+        <img src={src} alt="Photo envoyée dans la conversation" className="w-full h-full object-cover" />
+      ) : (
+        <span className="text-xs text-muted">{loaded.failed ? "Photo indisponible" : "Chargement…"}</span>
+      )}
+    </button>
+  );
+}
+
+/* ===== Photo agrandie (Échap ou clic pour fermer) ===== */
+function ImageViewer({ url, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Photo" onClick={onClose}
+      className="fixed inset-0 z-60 bg-black/85 flex flex-col items-center justify-center gap-3 p-4">
+      <img src={url} alt="Photo envoyée dans la conversation" onClick={(e) => e.stopPropagation()}
+        className="max-w-full max-h-[82vh] object-contain rounded-lg" />
+      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+        <a href={url} download="photo-movecolis.jpg" className={`${btnOutline} ${btnSm}`}>
+          <Download size={15} /> Enregistrer
+        </a>
+        <button type="button" onClick={onClose} className={`${btnOutline} ${btnSm}`}>
+          <X size={15} /> Fermer
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ===== Bulle de message ===== */
-function MessageBubble({ message, mine, showName, name, seen, onRetry }) {
+function MessageBubble({ message, mine, showName, name, seen, onRetry, onOpenImage }) {
   if (message.senderType === "SYSTEM") {
     return (
       <div className="flex justify-center my-1">
@@ -209,17 +336,25 @@ function MessageBubble({ message, mine, showName, name, seen, onRetry }) {
   return (
     <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
       {showName && !mine && <div className="text-[11.5px] font-bold text-muted mb-0.5 ml-1">{name}</div>}
-      <div
-        className={`px-3.5 py-2 text-sm max-w-[85%] whitespace-pre-wrap break-words ${
-          mine
-            ? "bg-primary text-white rounded-2xl rounded-br-md"
-            : message.senderType === "ADMIN"
-              ? "bg-[#E3F2FD] text-ink rounded-2xl rounded-bl-md"
-              : "bg-white border border-line-light text-ink rounded-2xl rounded-bl-md"
-        } ${message.pending ? "opacity-60" : ""}`}
-      >
-        {message.body}
-      </div>
+      {message.attachment ? (
+        // Photo, avec son texte s'il en dit plus que « 📷 Photo » (ex. « 📷 Capture du paiement »)
+        <div className={`max-w-[85%] flex flex-col ${mine ? "items-end" : "items-start"} ${message.pending ? "opacity-60" : ""}`}>
+          <MessageImage message={message} onOpen={onOpenImage} />
+          {message.body !== "📷 Photo" && <div className="text-xs font-semibold text-muted mt-1 mx-1">{message.body}</div>}
+        </div>
+      ) : (
+        <div
+          className={`px-3.5 py-2 text-sm max-w-[85%] whitespace-pre-wrap break-words ${
+            mine
+              ? "bg-primary text-white rounded-2xl rounded-br-md"
+              : message.senderType === "ADMIN"
+                ? "bg-[#E3F2FD] text-ink rounded-2xl rounded-bl-md"
+                : "bg-white border border-line-light text-ink rounded-2xl rounded-bl-md"
+          } ${message.pending ? "opacity-60" : ""}`}
+        >
+          {message.body}
+        </div>
+      )}
       <div className="text-[10.5px] text-muted mt-0.5 mx-1">
         {message.failed ? (
           <button type="button" onClick={() => onRetry(message)} className="text-danger font-bold underline">
@@ -238,8 +373,8 @@ function MessageBubble({ message, mine, showName, name, seen, onRetry }) {
   );
 }
 
-/* ===== Zone de saisie ===== */
-function Composer({ onSend, onTyping }) {
+/* ===== Zone de saisie (onPickImage : bouton photo, ex. capture du paiement) ===== */
+function Composer({ onSend, onTyping, onPickImage }) {
   const [text, setText] = useState("");
 
   function submit(e) {
@@ -251,6 +386,17 @@ function Composer({ onSend, onTyping }) {
 
   return (
     <form onSubmit={submit} className="flex items-end gap-2 border-t border-line-light p-2.5 bg-white">
+      {onPickImage && (
+        <button
+          type="button"
+          onClick={() => onPickImage()}
+          aria-label="Envoyer une photo"
+          title="Envoyer une photo (capture du paiement…)"
+          className="w-10 h-10 shrink-0 rounded-full border border-line text-ink flex items-center justify-center hover:border-ink transition"
+        >
+          <Camera size={18} />
+        </button>
+      )}
       <textarea
         value={text}
         onChange={(e) => {
@@ -287,6 +433,11 @@ export default function Conversation() {
   const justOrdered = location.state?.justOrdered; // { reference } après une demande de billet
   const chat = useConversation(id);
   const [pendingStatus, setPendingStatus] = useState(null);
+  const [flash, showFlash] = useFlash();
+  const [viewerUrl, setViewerUrl] = useState(null); // photo agrandie
+  const [sendingPaymentInfo, setSendingPaymentInfo] = useState(false);
+  const fileInputRef = useRef(null);
+  const captionRef = useRef(undefined); // texte de la photo choisie (« 📷 Capture du paiement »…)
 
   const listRef = useRef(null);
   const stickToBottom = useRef(true); // l'utilisateur est en bas de la conversation ?
@@ -317,6 +468,38 @@ export default function Conversation() {
   function handleSend(text) {
     stickToBottom.current = true;
     chat.send(text);
+  }
+
+  // Photo : bouton 📷 de la zone de saisie, ou « Envoyer la capture du paiement » (texte du message)
+  function pickImage(caption) {
+    captionRef.current = caption;
+    fileInputRef.current?.click();
+  }
+
+  async function handleImageChosen(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // la même photo pourra être choisie à nouveau
+    if (!file) return;
+    stickToBottom.current = true;
+    try {
+      await chat.sendImage(file, captionRef.current);
+    } catch (err) {
+      showFlash(err.message, "danger"); // image illisible (un échec d'envoi, lui, se réessaie sur la bulle)
+    }
+  }
+
+  // Équipe : numéros de paiement (réglages des billets) envoyés au client dans la conversation
+  async function sendPaymentInfo() {
+    setSendingPaymentInfo(true);
+    try {
+      const updated = await adminApi.sendFlightPaymentInfo(chat.detail.flightOrder.id);
+      chat.patchFlightOrder({ paymentInfoSentAt: updated.paymentInfoSentAt });
+      stickToBottom.current = true;
+    } catch (err) {
+      showFlash(errorMessage(err), "danger");
+    } finally {
+      setSendingPaymentInfo(false);
+    }
   }
 
   const backLink = (
@@ -388,9 +571,11 @@ export default function Conversation() {
         ) : (
           <>
             {isFlight ? (
-              <FlightOrderHeader detail={detail} onAction={setPendingStatus} />
+              <FlightOrderHeader detail={detail} onAction={setPendingStatus} onSendPaymentInfo={sendPaymentInfo}
+                sendingPaymentInfo={sendingPaymentInfo} onPickImage={pickImage} />
             ) : (
-              <ConversationHeader detail={detail} onAction={setPendingStatus} />
+              <ConversationHeader detail={detail} onAction={setPendingStatus} onPickImage={pickImage}
+                onPaymentUpdated={chat.patchReservation} onFlash={showFlash} />
             )}
 
             {/* ===== Fil de discussion ===== */}
@@ -436,6 +621,7 @@ export default function Conversation() {
                           new Date(chat.otherReadAt) >= new Date(message.createdAt)
                         }
                         onRetry={chat.retry}
+                        onOpenImage={setViewerUrl}
                       />
                     </Fragment>
                   );
@@ -446,7 +632,9 @@ export default function Conversation() {
                 )}
               </div>
 
-              <Composer onSend={handleSend} onTyping={chat.notifyTyping} />
+              <Composer onSend={handleSend} onTyping={chat.notifyTyping} onPickImage={pickImage} />
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageChosen} className="hidden"
+                aria-hidden="true" tabIndex={-1} />
             </div>
 
             {!user && (
@@ -493,6 +681,8 @@ export default function Conversation() {
           }}
         />
       )}
+      {viewerUrl && <ImageViewer url={viewerUrl} onClose={() => setViewerUrl(null)} />}
+      <Toast flash={flash} />
     </Layout>
   );
 }
