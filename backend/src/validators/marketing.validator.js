@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { nullableField } from "./common.js";
+import { isInternalPath } from "../utils/url.js";
 
 const city = z.string().trim().min(2, "Nom de ville trop court.").max(80);
 const timezone = z.string().max(64).optional();
@@ -25,12 +26,12 @@ export const preferencesBody = z
 
 /* ---------- Admin : campagnes ---------- */
 
-// Lien interne uniquement (jamais vers un autre site : pas d'hameçonnage possible)
+// Lien interne uniquement (jamais vers un autre site : pas d'hameçonnage possible, même avec //autre-site.com)
 const internalLink = z
   .string()
   .trim()
   .max(255)
-  .regex(/^\/[^\s]*$/, "Lien interne attendu, commençant par / (ex. /?vers=Abidjan).");
+  .refine(isInternalPath, "Lien interne attendu, commençant par / (ex. /?vers=Abidjan).");
 
 const campaignFields = {
   title: z.string().trim().min(3).max(80, "80 caractères maximum (titre de notification)."),

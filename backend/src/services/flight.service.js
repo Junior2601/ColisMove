@@ -149,6 +149,15 @@ function monthRoute(origin, destination, month, returnMonth = null) {
   return { origin, destination, month: `${month}-01`, returnMonth: returnMonth ? `${returnMonth}-01` : null };
 }
 
+/**
+ * Les codes de ville viennent de l'URL : un code inventé (origine=XYZ) ne déclenche ni appel à Aviasales ni
+ * entrée dans « Trajets recherchés par les clients ».
+ */
+async function assertKnownCities(...codes) {
+  const known = await Promise.all(codes.map((code) => aviasales.isKnownCity(code)));
+  if (known.some((value) => value === false)) throw badRequest("Ville inconnue : choisissez-la dans la liste.");
+}
+
 /** Trajet de la recherche d'un billet déjà enregistré (mois de son départ, et de son retour) */
 const routeOfOffer = (offer) => ({
   origin: offer.origin,
@@ -317,7 +326,7 @@ export async function searchOffers({ origin, destination, month, returnMonth = n
   const settings = await flightModel.getSettings();
   assertEnabled(settings);
   const route = monthRoute(origin, destination, month, returnMonth);
-
+  await assertKnownCities(origin, destination);
   await flightModel.recordRequest(route);
   const { fetchedAt, stale } = await ensureFresh(route, settings);
   let offers = await flightModel.listForRoute(route, {
@@ -437,6 +446,7 @@ function toAdminOffer(offer, settings, names, fetchedAt) {
 export async function listAdminOffers({ origin, destination, month, returnMonth = null, refresh }) {
   const settings = await flightModel.getSettings();
   const route = monthRoute(origin, destination, month, returnMonth);
+  await assertKnownCities(origin, destination);
   let fetchedAt = null;
   let fetchError = null;
   try {

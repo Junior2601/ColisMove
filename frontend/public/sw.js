@@ -77,9 +77,14 @@ self.addEventListener("push", (event) => {
 });
 
 /* ---------- Clic sur une notification ---------- */
+// Lien interne uniquement : "//autre-site.com" ou "https://…" ouvrent l'accueil
+const safeInternalPath = (link) =>
+  // eslint-disable-next-line no-control-regex -- caractères de contrôle refusés exprès
+  typeof link === "string" && /^\/(?![/\\])[^\s\\\u0000-\u001f\u007f]*$/.test(link) ? link : "/";
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || "/";
+  const url = safeInternalPath(event.notification.data?.url);
 
   event.waitUntil(
     (async () => {

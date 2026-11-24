@@ -3,7 +3,7 @@ import * as publicController from "../controllers/public.controller.js";
 import * as flight from "../controllers/flight.controller.js";
 import { optionalAuth } from "../middlewares/auth.js";
 import { validate } from "../middlewares/validate.js";
-import { flightSearchLimiter, reservationLimiter } from "../middlewares/rateLimit.js";
+import { flightSearchLimiter, reservationLimiter, trackingLimiter } from "../middlewares/rateLimit.js";
 import { idParam } from "../validators/common.js";
 import { createReservationBody, listPublicTripsQuery, trackingParam } from "../validators/public.validator.js";
 import { createFlightOrderBody, placesQuery, searchFlightsQuery } from "../validators/flight.validator.js";
@@ -21,7 +21,7 @@ router.get("/trips/:id", validate({ params: idParam }), publicController.getTrip
 router.post("/reservations", reservationLimiter, validate({ body: createReservationBody }), publicController.createReservation);
 
 // Tracking.jsx
-router.get("/tracking/:code", validate({ params: trackingParam }), publicController.getTracking);
+router.get("/tracking/:code", trackingLimiter, validate({ params: trackingParam }), publicController.getTracking);
 
 // Tous les pays : nom, indicatif téléphonique, drapeau (FlightOffer.jsx : nationalité des passagers, téléphone)
 router.get("/countries", publicController.listCountries);
@@ -30,7 +30,8 @@ router.get("/countries", publicController.listCountries);
 router.get("/flights/config", flight.config);
 router.get("/flights/places", flightSearchLimiter, validate({ query: placesQuery }), flight.places);
 router.get("/flights/search", flightSearchLimiter, validate({ query: searchFlightsQuery }), flight.search);
-router.get("/flights/offers/:id", validate({ params: idParam }), flight.getOffer);
+// Page d'un billet : peut redemander les prix à Aviasales, même limite que la recherche
+router.get("/flights/offers/:id", flightSearchLimiter, validate({ params: idParam }), flight.getOffer);
 // Demande d'achat (visiteur ou client connecté) → ouvre la conversation avec l'équipe MoveColis
 router.post("/flight-orders", reservationLimiter, validate({ body: createFlightOrderBody }), flight.createOrder);
 

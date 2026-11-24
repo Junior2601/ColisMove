@@ -47,7 +47,9 @@ export default function FlightSearch({ config }) {
     origin: params.get("origine"),
     destination: params.get("destination"),
     month: params.get("mois"),
-    returnMonth: isMonth(params.get("retour")) ? params.get("retour") : null, // aller-retour : mois du retour
+    // Aller-retour : mois du retour (ignoré s'il est invalide ou avant le départ)
+    returnMonth:
+      isMonth(params.get("retour")) && params.get("retour") >= (params.get("mois") ?? "") ? params.get("retour") : null,
     direct: params.get("direct") === "1",
     bags: params.get("bagages") === "1", // bagage en soute inclus (filtre appliqué ici, sur les résultats)
   };

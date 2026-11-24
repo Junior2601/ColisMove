@@ -3,6 +3,7 @@
  *  - prix   : /aviasales/v3/prices_for_dates (billets trouvés par les utilisateurs d'Aviasales ces dernières 48 h)
  *  - villes : autocomplete.travelpayouts.com (sans clé)
  *  - compagnies : api.travelpayouts.com/data/fr/airlines.json (sans clé)
+ *  - annuaire des villes : api.travelpayouts.com/data/fr/cities.json (sans clé), pour refuser les codes inventés
  * Le reste du code ne connaît que les fonctions exportées ici.
  */
 import { env } from "../config/env.js";
@@ -78,6 +79,32 @@ export async function cityByCode(code) {
     console.error("[aviasales] ville", code, err.message);
   }
   return { code, name: code, countryName: "" };
+}
+
+/* ---------- Annuaire des villes : un code de ville dans l'URL doit exister ---------- */
+
+let cityCodes = { codes: new Set(), expires: 0, loading: null };
+
+async function loadCityCodes() {
+  const rows = await getJson(`${env.aviasales.apiUrl}/data/fr/cities.json`);
+  const codes = new Set((Array.isArray(rows) ? rows : []).map((row) => row.code).filter((code) => /^[A-Z]{3}$/.test(code ?? "")));
+  if (!codes.size) throw new Error("annuaire des villes vide");
+  cityCodes = { codes, expires: Date.now() + DAY_MS, loading: null };
+}
+
+/**
+ * "MOW" → true, "XYZ" → false (code absent de l'annuaire d'Aviasales).
+ * null si l'annuaire est indisponible : on ne bloque alors pas la recherche.
+ */
+export async function isKnownCity(code) {
+  if (cityCodes.expires < Date.now()) {
+    cityCodes.loading ??= loadCityCodes().catch((err) => {
+      console.error("[aviasales] annuaire des villes", err.message);
+      cityCodes = { ...cityCodes, expires: Date.now() + 10 * 60 * 1000, loading: null }; // nouvel essai dans 10 min
+    });
+    await cityCodes.loading;
+  }
+  return cityCodes.codes.size ? cityCodes.codes.has(code) : null;
 }
 
 /* ---------- Compagnies aériennes ---------- */
@@ -322,6 +349,7 @@ export async function fetchMonthPrices({ origin, destination, month, returnMonth
 export function purchaseUrl(link) {
   if (!link?.startsWith("/")) return null; // toujours un chemin du site Aviasales
   const url = new URL(link, AVIASALES_SITE);
+  if (url.origin !== AVIASALES_SITE) return null; // "//autre-site.com" : jamais un autre site
   if (env.aviasales.marker) url.searchParams.set("marker", env.aviasales.marker);
   return url.toString();
 }

@@ -7,6 +7,7 @@ import { NOTIFICATION_ICONS, NotificationsContext } from "./NotificationsContext
 import { useSocketEvent } from "../hooks/useSocketEvent";
 import { setAppBadge } from "../lib/pwa";
 import { syncPushSubscription } from "../lib/push";
+import { safeInternalPath } from "../lib/url";
 
 const NO_COUNTS = { notifications: 0, messages: 0 };
 
@@ -100,7 +101,7 @@ export function NotificationsProvider({ children }) {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const onMessage = (event) => {
-      if (event.data?.type === "navigate") navigate(event.data.url);
+      if (event.data?.type === "navigate") navigate(safeInternalPath(event.data.url));
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
@@ -122,7 +123,7 @@ export function NotificationsProvider({ children }) {
       setToast(null);
       if (!notification.read) await notificationsApi.markRead(notification.id).catch(() => {});
       refresh();
-      if (notification.link) navigate(notification.link);
+      if (notification.link) navigate(safeInternalPath(notification.link));
     },
     [navigate, refresh]
   );

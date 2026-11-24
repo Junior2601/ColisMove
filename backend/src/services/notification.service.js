@@ -2,6 +2,7 @@ import * as notificationModel from "../models/notification.model.js";
 import * as conversationModel from "../models/conversation.model.js";
 import * as pushService from "./push.service.js";
 import * as realtime from "../socket/realtime.js";
+import { safeInternalPath } from "../utils/url.js";
 
 const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
@@ -19,7 +20,14 @@ export async function notify(userIds, { type, title, body = "", link = null, gro
   const ids = [...new Set(userIds.filter(Boolean))];
   const notifications = await Promise.all(
     ids.map((userId) =>
-      notificationModel.upsert({ userId, type, title: clip(title, 160), body: clip(body, 300), link, groupKey })
+      notificationModel.upsert({
+        userId,
+        type,
+        title: clip(title, 160),
+        body: clip(body, 300),
+        link: link === null ? null : safeInternalPath(link), // jamais vers un autre site
+        groupKey,
+      })
     )
   );
   notifications.forEach((notification, i) => deliver(ids[i], notification));
