@@ -2,14 +2,17 @@ import { z } from "zod";
 import { emptyToNull, pagination, phoneSchema, searchQuery } from "./common.js";
 import { TRIP_STATUSES, USER_STATUSES } from "../config/constants.js";
 import { createTripBody } from "./trip.validator.js";
+import { flightLeg } from "./flight.validator.js";
 
 /* ---------- Voyages (schémas partagés avec le voyageur) ---------- */
 
 export { cancelTripBody, updateTripBody } from "./trip.validator.js";
 
 // L'admin peut publier les kilos libérés par les valises retirées sur un billet vendu (espace « Kilos disponibles »)
+// flightOrderLeg : kilos de l'aller (par défaut) ou du retour d'un aller-retour
 export const createAdminTripBody = createTripBody.extend({
   flightOrderId: z.coerce.number().int().positive().max(2147483647).optional(),
+  flightOrderLeg: flightLeg.default("OUTBOUND"),
 });
 
 export const listTripsQuery = z.object({

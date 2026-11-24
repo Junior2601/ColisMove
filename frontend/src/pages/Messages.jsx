@@ -32,7 +32,11 @@ function counterpartLabel(c) {
 function contextLabel(c) {
   if (c.kind === "FLIGHT") {
     const f = c.flightOrder;
-    return `✈️ Billet ${f.originCity} → ${f.destinationCity} · ${formatTripShortDate(f.departureAt)} · ${f.reference}`;
+    // Aller-retour : "Moscou ⇄ Abidjan · 15 déc. – 5 janv."
+    const dates = f.returnAt
+      ? `${formatTripShortDate(f.departureAt)} – ${formatTripShortDate(f.returnAt)}`
+      : formatTripShortDate(f.departureAt);
+    return `✈️ Billet ${f.originCity} ${f.returnAt ? "⇄" : "→"} ${f.destinationCity} · ${dates} · ${f.reference}`;
   }
   return `${routeLabel(c.trip)} · ${formatTripShortDate(c.trip.departureAt)} · ${c.reservation.trackingCode}`;
 }

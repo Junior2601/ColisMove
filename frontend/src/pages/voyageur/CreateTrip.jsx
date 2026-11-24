@@ -9,7 +9,7 @@ import { voyageurApi } from "../../api/voyageur";
 import { errorMessage, fieldErrors } from "../../api/client";
 import { useApi } from "../../hooks/useApi";
 import { formatKg, formatMoney, formatTripDate, joinLocal, routeLabel } from "../../lib/format";
-import { formatDuration, removedBagsLabel, stopCitiesText } from "../../lib/flights";
+import { flightNameLabel, formatDuration, removedBagsLabel, stopCitiesText } from "../../lib/flights";
 import { decodeId } from "../../lib/hashid";
 
 // Devises proposées (le backend accepte tout code ISO à 3 lettres)
@@ -87,19 +87,21 @@ export default function CreateTrip() {
   const isAdmin = user.role === "ADMIN";
   const layoutVariant = isAdmin ? "admin" : "traveler";
 
-  // Admin : publication des kilos libérés sur un billet (/publier?billet=Xk9mP2qA, depuis « Kilos disponibles »)
+  // Admin : publication des kilos libérés sur un billet (/publier?billet=Xk9mP2qA, depuis « Kilos disponibles »),
+  // sur son vol retour pour un aller-retour (&vol=retour)
   const [params, setParams] = useSearchParams();
   const flightOrderId = isAdmin ? decodeId(params.get("billet")) : null;
+  const flightOrderLeg = params.get("vol") === "retour" ? "RETURN" : "OUTBOUND";
   const freedKilos = useApi(
-    () => (flightOrderId ? adminApi.getFreedKilos(flightOrderId) : Promise.resolve(null)),
-    [flightOrderId]
+    () => (flightOrderId ? adminApi.getFreedKilos(flightOrderId, flightOrderLeg) : Promise.resolve(null)),
+    [flightOrderId, flightOrderLeg]
   );
-  const source = flightOrderId ? freedKilos.data : null; // demande de billet dont on publie les kilos
+  const source = flightOrderId ? freedKilos.data : null; // vol de la demande de billet dont on publie les kilos
 
   const [form, setForm] = useState(initial);
   const [prefilledFrom, setPrefilledFrom] = useState(null);
-  if (source && prefilledFrom !== source.id) {
-    setPrefilledFrom(source.id);
+  if (source && prefilledFrom !== `${source.id}-${source.leg}`) {
+    setPrefilledFrom(`${source.id}-${source.leg}`);
     setForm(formFromFreedKilos(source));
   }
   const [submitting, setSubmitting] = useState(false);
@@ -135,7 +137,7 @@ export default function CreateTrip() {
     try {
       // Même formulaire, endpoint selon le rôle : le voyage appartient à l'utilisateur connecté
       const trip = isAdmin
-        ? await adminApi.createTrip(source ? { ...payload, flightOrderId: source.id } : payload)
+        ? await adminApi.createTrip(source ? { ...payload, flightOrderId: source.id, flightOrderLeg: source.leg } : payload)
         : await voyageurApi.createTrip(payload);
       setPublished(trip);
       window.scrollTo({ top: 0 });
@@ -202,8 +204,10 @@ export default function CreateTrip() {
         {freedKilos.error && <ErrorState error={freedKilos.error} onRetry={freedKilos.reload} />}
         {source && (
           <Notice>
-            <b>Kilos libérés sur le billet {source.reference}</b> ({source.clientName},{" "}
-            {source.flight.airlineName} {source.flight.airline} {source.flight.flightNumber}) :{" "}
+            <b>
+              Kilos libérés sur {source.leg === "RETURN" ? "le vol retour du billet" : "le billet"} {source.reference}
+            </b>{" "}
+            ({source.clientName}, {flightNameLabel(source.flight)}) :{" "}
             {removedBagsLabel(source.bags.removed)}, soit <b>{formatKg(source.bags.freedKilos)}</b>. Le vol est
             pré-rempli
             {source.flight.durationMinutes ? ` (${formatDuration(source.flight.durationMinutes)} de trajet au total)` : ""}.{" "}

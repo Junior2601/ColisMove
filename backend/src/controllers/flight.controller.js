@@ -76,7 +76,7 @@ export async function listFreedKilos(req, res) {
 }
 
 export async function getFreedKilos(req, res) {
-  res.json(await flightOrderService.getFreedKilos(req.valid.params.id));
+  res.json(await flightOrderService.getFreedKilos(req.valid.params.id, req.valid.query.leg));
 }
 
 export async function updateOrderStatus(req, res) {

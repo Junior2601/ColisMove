@@ -9,6 +9,15 @@ const intBetween = (min, max) => z.coerce.number().int().min(min).max(max);
 // Champ « vide = règle générale » : "", null → null
 const nullableNumber = (schema) => z.preprocess(emptyToNull, schema.nullable()).optional();
 const atLeastOneField = (data) => Object.values(data).some((value) => value !== undefined);
+// Mois de retour d'un aller-retour (absent ou vide : aller simple)
+const returnMonthField = z.preprocess(emptyToNull, monthField.nullable()).optional();
+// Le retour ne part pas avant l'aller : mois de retour ≥ mois de départ
+const returnAfterDeparture = [
+  (data) => !data.returnMonth || data.returnMonth >= data.month,
+  { message: "Le mois de retour ne peut pas être avant le mois de départ.", path: ["returnMonth"] },
+];
+// Vol d'une demande dont on publie les kilos libérés : aller, ou retour d'un aller-retour
+export const flightLeg = z.enum(["OUTBOUND", "RETURN"]);
 const email = z.string().trim().toLowerCase().email("Adresse e-mail invalide.").max(160);
 
 /* ---------- Côté client ---------- */
@@ -17,12 +26,15 @@ export const placesQuery = z.object({
   term: z.string().trim().min(2, "Au moins 2 lettres.").max(40),
 });
 
-export const searchFlightsQuery = z.object({
-  origin: cityCode,
-  destination: cityCode,
-  month: monthField,
-  direct: queryBoolean, // vols directs uniquement
-});
+export const searchFlightsQuery = z
+  .object({
+    origin: cityCode,
+    destination: cityCode,
+    month: monthField,
+    returnMonth: returnMonthField, // aller-retour : retour ce mois-là
+    direct: queryBoolean, // vols directs uniquement (à l'aller comme au retour)
+  })
+  .refine(...returnAfterDeparture);
 
 // "1990-03-12" : date réelle du calendrier, après 1900
 const birthDate = z
@@ -64,6 +76,8 @@ export const createFlightOrderBody = z.object({
     .default([]),
   // Valises en soute gardées (tous passagers) : moins que celles incluses = réduction, kilos libérés pour MoveColis
   checkedBags: intBetween(0, 5 * FLIGHT_MAX_PASSENGERS).optional(),
+  // Aller-retour : valises gardées sur le vol retour, choisies indépendamment de l'aller
+  returnCheckedBags: intBetween(0, 5 * FLIGHT_MAX_PASSENGERS).optional(),
   expectedTotal: z.coerce.number().nonnegative().optional(), // total affiché au client : refusé s'il a changé
 });
 
@@ -100,12 +114,15 @@ export const updateFlightOptionBody = createFlightOptionBody.partial().refine(at
 
 /* ---------- Administration : billets ---------- */
 
-export const adminOffersQuery = z.object({
-  origin: cityCode,
-  destination: cityCode,
-  month: monthField,
-  refresh: queryBoolean, // redemander les prix à Aviasales maintenant
-});
+export const adminOffersQuery = z
+  .object({
+    origin: cityCode,
+    destination: cityCode,
+    month: monthField,
+    returnMonth: returnMonthField, // aller-retour : retour ce mois-là
+    refresh: queryBoolean, // redemander les prix à Aviasales maintenant
+  })
+  .refine(...returnAfterDeparture);
 
 export const updateFlightOfferBody = z
   .object({
@@ -140,6 +157,11 @@ export const updateFlightOrderStatusBody = z.object({
 
 export const freedKilosQuery = z.object({
   period: z.enum(["upcoming", "past"]).default("upcoming"),
+});
+
+// /admin/flights/kilos/:id?leg=RETURN : kilos du vol retour d'un aller-retour
+export const freedKilosLegQuery = z.object({
+  leg: flightLeg.default("OUTBOUND"),
 });
 
 /* ---------- Administration : envoi du billet par e-mail ---------- */

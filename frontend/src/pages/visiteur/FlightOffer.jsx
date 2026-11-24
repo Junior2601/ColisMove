@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Info, MessageCircle, Minus, Plus } from "lucide-react";
 import Layout from "../../components/Layout";
-import { AirlineLogo, FlightLine } from "../../components/flights/FlightOfferCard";
+import { AirlineLogo, FlightLine, LegTitle } from "../../components/flights/FlightOfferCard";
 import { PassengerFields } from "../../components/flights/Passengers";
 import PhoneField from "../../components/PhoneField";
 import { ErrorState, Field, Loader, Notice, btnPrimary, inputClass } from "../../components/ui";
@@ -15,7 +15,7 @@ import { saveGuestAccess } from "../../lib/guestAccess";
 import { decodeId, paths } from "../../lib/hashid";
 import { formatKg, formatMoney, formatTripDate, formatTripTime, plural } from "../../lib/format";
 import {
-  EMPTY_PASSENGER, baggageLabel, computeTotal, formatDuration, includedBags, passengerSlots, stopsDetail,
+  EMPTY_PASSENGER, baggageLabel, computeTotal, formatDuration, includedBags, passengerSlots, flightRouteLabel, stopsDetail,
 } from "../../lib/flights";
 
 // Ligne clé/valeur du récapitulatif
@@ -51,6 +51,62 @@ function Stepper({ label, hint, value, min, max, onChange }) {
   );
 }
 
+// Détail d'un vol : départ, arrivée (heures locales), escales, durée
+function LegRows({ leg }) {
+  return (
+    <>
+      <Row k="Départ" v={`${leg.origin.name}${leg.originAirport ? ` · ${leg.originAirport}` : ""}`} />
+      <Row k="Date · heure de départ" v={`${formatTripDate(leg.departureAt)} · ${formatTripTime(leg.departureAt)}`} />
+      <Row k="Arrivée" v={`${leg.destination.name}${leg.destinationAirport ? ` · ${leg.destinationAirport}` : ""}`} />
+      {leg.arrivalAt && (
+        <Row k="Date · heure d'arrivée" v={`${formatTripDate(leg.arrivalAt)} · ${formatTripTime(leg.arrivalAt)}`} />
+      )}
+      <Row k={leg.transfers > 1 ? "Escales" : "Escale"} v={stopsDetail(leg.transfers, leg.stops)} />
+      {leg.durationMinutes && <Row k="Durée totale" v={formatDuration(leg.durationMinutes)} />}
+    </>
+  );
+}
+
+/**
+ * Valises en soute d'un vol : compteur si le client peut en retirer (réglage de l'admin, et vol dans 2 semaines ou
+ * plus), sinon le nombre inclus et la raison. flight : "" (aller simple), "aller" ou "retour".
+ */
+function BagsControl({ offer, flight, included, kept, canRemove, freedKilos, money, onChange }) {
+  const title = flight === "aller" ? "Valises à l'aller" : flight === "retour" ? "Valises au retour" : "Valises en soute";
+  if (!canRemove) {
+    return (
+      <div className="text-sm py-2">
+        <b>{title} :</b> {included} × {offer.checkedBagKg} kg incluses
+        {/* Réduction proposée, mais vol dans moins de 2 semaines : on explique pourquoi */}
+        {offer.bagRefund > 0 && (
+          <p className="text-xs text-muted mt-1 flex gap-1.5 items-start">
+            <Info size={14} className="shrink-0 mt-px" />
+            <span>
+              Retirer une valise (−{money(offer.bagRefund)} par valise) n&apos;est possible que jusqu&apos;à 2 semaines
+              avant {flight === "retour" ? "le vol retour" : "le départ"}.
+            </span>
+          </p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <>
+      <Stepper
+        label={`${title} (${offer.checkedBagKg} kg)`}
+        hint={`${plural(offer.checkedBags, "valise")} incluse${offer.checkedBags > 1 ? "s" : ""} par passager (hors bébés)${flight ? " sur ce vol" : ""} · −${money(offer.bagRefund)} par valise retirée`}
+        value={kept} min={0} max={included}
+        onChange={onChange}
+      />
+      {freedKilos > 0 && (
+        <p className="text-xs text-muted pb-1">
+          {formatKg(freedKilos)} libérés{flight ? ` sur le vol ${flight}` : ""} : cette place en soute revient à MoveColis.
+        </p>
+      )}
+    </>
+  );
+}
+
 // Pourquoi le formulaire n'est pas proposé (ou null s'il l'est)
 function orderBlocker(user) {
   if (user && user.role !== "CLIENT") {
@@ -79,6 +135,7 @@ export default function FlightOffer() {
   const [travellers, setTravellers] = useState({ ADULT: [], CHILD: [], INFANT: [] });
   const [quantities, setQuantities] = useState({}); // { [optionId]: quantité }
   const [removedBags, setRemovedBags] = useState(0); // valises en soute retirées (réduction sur le billet)
+  const [removedReturnBags, setRemovedReturnBags] = useState(0); // aller-retour : retirées sur le vol retour
   const [form, setForm] = useState({ name: "", phone: "", email: "", note: "" });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState(null);
@@ -119,16 +176,24 @@ export default function FlightOffer() {
   const { offer, config } = data;
   const money = (amount) => formatMoney(amount, offer.currency);
   const seats = passengers.adults + passengers.children + passengers.infants;
+  const back = offer.returnFlight; // aller-retour : le vol retour (null pour un aller simple)
   // Valises en soute : incluses pour tous les passagers (hors bébés), le client peut en retirer si l'admin l'autorise,
-  // et seulement si le départ est dans 2 semaines ou plus (le temps de revendre les kilos libérés)
+  // et seulement si le vol part dans 2 semaines ou plus (le temps de revendre les kilos libérés).
+  // Aller-retour : chaque vol a ses valises, le client en retire à l'aller, au retour ou sur les deux.
   const bagsIncluded = includedBags(offer, passengers);
   const canRemoveBags = offer.bagRefund > 0 && offer.bagRemovalOpen;
+  const canRemoveReturnBags = Boolean(back) && offer.bagRefund > 0 && offer.returnBagRemovalOpen;
   const bagsKept = bagsIncluded - (canRemoveBags ? Math.min(removedBags, bagsIncluded) : 0);
-  const { lines, total, freedKilos } = computeTotal(offer, passengers, quantities, config.options, money, bagsKept);
+  const returnBagsKept = bagsIncluded - (canRemoveReturnBags ? Math.min(removedReturnBags, bagsIncluded) : 0);
+  const { lines, total, freedKilos, returnFreedKilos } = computeTotal(
+    offer, passengers, quantities, config.options, money, bagsKept, returnBagsKept
+  );
   const blocker = orderBlocker(user);
-  const route = `${offer.origin.name} → ${offer.destination.name}`;
-  // Retour à la recherche de ce trajet et de ce mois (même depuis un lien partagé)
-  const searchLink = `/?onglet=billets&origine=${offer.origin.code}&destination=${offer.destination.code}&mois=${offer.departureAt.slice(0, 7)}`;
+  const route = flightRouteLabel(offer.origin.name, offer.destination.name, Boolean(back));
+  // Retour à la recherche de ce trajet et de ce(s) mois (même depuis un lien partagé)
+  const searchLink =
+    `/?onglet=billets&origine=${offer.origin.code}&destination=${offer.destination.code}&mois=${offer.departureAt.slice(0, 7)}` +
+    (back ? `&retour=${back.departureAt.slice(0, 7)}` : "");
 
   // Un bloc par passager, dans l'ordre : adultes, enfants, bébés
   const passengerList = passengerSlots(passengers).map(([type, slot]) => ({
@@ -174,6 +239,7 @@ export default function FlightOffer() {
           type, fullName: fullName.trim(), gender, birthDate, nationality, passportNumber: passportNumber.trim(),
         })),
         checkedBags: bagsKept,
+        ...(back && { returnCheckedBags: returnBagsKept }),
         options: Object.entries(quantities)
           .filter(([, quantity]) => quantity > 0)
           .map(([id, quantity]) => ({ id: Number(id), quantity })),
@@ -216,12 +282,18 @@ export default function FlightOffer() {
         <div>
           <div className="rounded-2xl bg-linear-to-br from-primary to-[#B3123F] text-white px-5 py-6 mt-4">
             <span className="inline-block bg-white text-ink text-xs font-bold rounded-full px-3 py-1.5 shadow-card mb-2.5">
-              À partir de {money(offer.adultPrice)} par adulte
+              {back ? `${money(offer.adultPrice)} l'aller-retour par adulte` : `À partir de ${money(offer.adultPrice)} par adulte`}
             </span>
             <div className="text-2xl font-extrabold">{route}</div>
             <div className="opacity-90 text-[13.5px] mt-1">
+              {back && "Aller : "}
               {formatTripDate(offer.departureAt)} · départ {formatTripTime(offer.departureAt)} (heure locale)
             </div>
+            {back && (
+              <div className="opacity-90 text-[13.5px]">
+                Retour : {formatTripDate(back.departureAt)} · départ {formatTripTime(back.departureAt)} (heure locale)
+              </div>
+            )}
           </div>
 
           <div className="border border-line-light rounded-xl px-4 py-4 my-4 flex flex-col gap-3">
@@ -231,20 +303,30 @@ export default function FlightOffer() {
                 {offer.airlineName} · vol {offer.airline} {offer.flightNumber}
               </span>
             </div>
-            <FlightLine offer={offer} />
+            {back ? (
+              <div>
+                <LegTitle label="Aller" departureAt={offer.departureAt} />
+                <FlightLine offer={offer} />
+                <LegTitle label="Retour" departureAt={back.departureAt} className="mt-2" />
+                <FlightLine offer={back} />
+              </div>
+            ) : (
+              <FlightLine offer={offer} />
+            )}
           </div>
 
           <div className="border border-line rounded-2xl p-5 bg-white mb-4">
             <Row k="Compagnie" v={`${offer.airlineName} (${offer.airline} ${offer.flightNumber})`} />
-            <Row k="Départ" v={`${offer.origin.name}${offer.originAirport ? ` · ${offer.originAirport}` : ""}`} />
-            <Row k="Date · heure de départ" v={`${formatTripDate(offer.departureAt)} · ${formatTripTime(offer.departureAt)}`} />
-            <Row k="Arrivée" v={`${offer.destination.name}${offer.destinationAirport ? ` · ${offer.destinationAirport}` : ""}`} />
-            {offer.arrivalAt && (
-              <Row k="Date · heure d'arrivée" v={`${formatTripDate(offer.arrivalAt)} · ${formatTripTime(offer.arrivalAt)}`} />
+            {back && <Row k="Billet" v="Aller-retour (un seul billet pour les deux vols)" />}
+            {back && <h3 className="text-[13px] font-extrabold text-primary pt-3">Vol aller</h3>}
+            <LegRows leg={offer} />
+            {back && (
+              <>
+                <h3 className="text-[13px] font-extrabold text-primary pt-3">Vol retour</h3>
+                <LegRows leg={back} />
+              </>
             )}
-            <Row k={offer.transfers > 1 ? "Escales" : "Escale"} v={stopsDetail(offer.transfers, offer.stops)} />
-            {offer.durationMinutes && <Row k="Durée totale" v={formatDuration(offer.durationMinutes)} />}
-            <Row k="Bagages inclus" v={baggageLabel(offer)} />
+            <Row k="Bagages inclus" v={`${baggageLabel(offer)}${back ? ", à l'aller et au retour" : ""}`} />
             <Row k="Prix enfant (2-11 ans)" v={money(offer.childPrice)} />
             <Row k="Prix bébé (moins de 2 ans)" v={money(offer.infantPrice)} />
           </div>
@@ -280,37 +362,21 @@ export default function FlightOffer() {
                   onChange={setCount("infants")} />
               </div>
 
-              {/* Valises en soute : en retirer réduit le prix */}
+              {/* Valises en soute : en retirer réduit le prix (aller-retour : vol par vol) */}
               {bagsIncluded > 0 && (
                 <div className="border-b border-line-light pb-2 mb-3">
-                  {canRemoveBags ? (
-                    <>
-                      <Stepper
-                        label={`Valises en soute (${offer.checkedBagKg} kg)`}
-                        hint={`${plural(offer.checkedBags, "valise")} incluse${offer.checkedBags > 1 ? "s" : ""} par passager (hors bébés) · −${money(offer.bagRefund)} par valise retirée`}
-                        value={bagsKept} min={0} max={bagsIncluded}
-                        onChange={(kept) => setRemovedBags(bagsIncluded - kept)}
-                      />
-                      {freedKilos > 0 && (
-                        <p className="text-xs text-muted pb-1">
-                          {formatKg(freedKilos)} libérés : cette place en soute revient à MoveColis.
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-sm py-2">
-                      <b>Valises en soute :</b> {bagsIncluded} × {offer.checkedBagKg} kg incluses
-                      {/* Réduction proposée, mais départ dans moins de 2 semaines : on explique pourquoi */}
-                      {offer.bagRefund > 0 && (
-                        <p className="text-xs text-muted mt-1 flex gap-1.5 items-start">
-                          <Info size={14} className="shrink-0 mt-px" />
-                          <span>
-                            Retirer une valise (−{money(offer.bagRefund)} par valise) n&apos;est possible que jusqu&apos;à
-                            2 semaines avant le départ.
-                          </span>
-                        </p>
-                      )}
-                    </div>
+                  {back && (canRemoveBags || canRemoveReturnBags) && (
+                    <p className="text-xs text-muted pt-1">
+                      Vous pouvez retirer des valises à l&apos;aller, au retour ou sur les deux vols.
+                    </p>
+                  )}
+                  <BagsControl offer={offer} flight={back ? "aller" : ""} included={bagsIncluded} kept={bagsKept}
+                    canRemove={canRemoveBags} freedKilos={freedKilos} money={money}
+                    onChange={(kept) => setRemovedBags(bagsIncluded - kept)} />
+                  {back && (
+                    <BagsControl offer={offer} flight="retour" included={bagsIncluded} kept={returnBagsKept}
+                      canRemove={canRemoveReturnBags} freedKilos={returnFreedKilos} money={money}
+                      onChange={(kept) => setRemovedReturnBags(bagsIncluded - kept)} />
                   )}
                 </div>
               )}

@@ -46,7 +46,8 @@ export const adminApi = {
   sendFlightTicket: (id, data) => api.post(`/admin/flight-orders/${id}/ticket`, data),
   // Kilos libérés par les valises que les clients ont retirées de leur billet
   listFreedKilos: (params) => api.get("/admin/flights/kilos", params), // { period: "upcoming" | "past" }
-  getFreedKilos: (id) => api.get(`/admin/flights/kilos/${id}`),
+  // leg : "RETURN" pour les kilos du vol retour d'un aller-retour (aller par défaut)
+  getFreedKilos: (id, leg = "OUTBOUND") => api.get(`/admin/flights/kilos/${id}`, leg === "RETURN" ? { leg } : undefined),
   flightSearches: () => api.get("/admin/flights/searches"),
   listFlightOffers: (params) => api.get("/admin/flights/offers", params), // { origin, destination, month, refresh }
   updateFlightOffer: (id, data) => api.patch(`/admin/flights/offers/${id}`, data),

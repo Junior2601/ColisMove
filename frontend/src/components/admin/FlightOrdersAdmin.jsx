@@ -11,8 +11,10 @@ import { usePaginated } from "../../hooks/useApi";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useFlash } from "../../hooks/useFlash";
 import { useSocketEvent } from "../../hooks/useSocketEvent";
-import { formatDateTime, formatKg, formatMoney, formatPhone, formatTripDate, formatTripTime, timeAgo } from "../../lib/format";
-import { arrivalTimeLabel, orderBaggageLabel, passengersLabel, removedBagsLabel, stopsLabel } from "../../lib/flights";
+import { formatDateTime, formatKg, formatMoney, formatPhone, timeAgo } from "../../lib/format";
+import {
+  flightNameLabel, flightTimesLabel, orderBaggageLabel, orderLegs, passengersLabel, removedBagsLabel, flightRouteLabel, stopsLabel,
+} from "../../lib/flights";
 import { paths } from "../../lib/hashid";
 import { CANCELLABLE_FLIGHT_ORDER_STATUSES, FLIGHT_ORDER_STATUS, NEXT_FLIGHT_ORDER_STEP } from "../../lib/status";
 
@@ -26,6 +28,8 @@ const STATUS_FILTERS = [
 
 function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
   const { flight } = order;
+  const roundTrip = Boolean(order.returnFlight);
+  const legs = orderLegs(order); // aller (et retour), chacun avec ses valises
   const status = FLIGHT_ORDER_STATUS[order.status];
   const next = NEXT_FLIGHT_ORDER_STEP[order.status];
   const open = CANCELLABLE_FLIGHT_ORDER_STATUSES.includes(order.status);
@@ -35,10 +39,16 @@ function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
       <div className="flex justify-between items-start gap-3">
         <div className="min-w-0">
           <div className="font-extrabold text-[15px]">
-            {flight.origin.name} → {flight.destination.name} · {formatTripDate(flight.departureAt)} ·{" "}
-            {formatTripTime(flight.departureAt)}
-            {flight.arrivalAt && ` → ${arrivalTimeLabel(flight.departureAt, flight.arrivalAt)}`}
+            {flightRouteLabel(flight.origin.name, flight.destination.name, roundTrip)}
+            {!roundTrip && ` · ${flightTimesLabel(flight)}`}
           </div>
+          {/* Aller-retour : une ligne par vol */}
+          {roundTrip &&
+            legs.map((leg) => (
+              <div key={leg.leg} className="text-[13px] font-bold">
+                <span className="text-primary">{leg.label}</span> · {flightTimesLabel(leg.flight)}
+              </div>
+            ))}
           <div className="text-xs text-muted">
             <span className="font-mono font-bold text-ink">{order.reference}</span> · demande {timeAgo(order.createdAt)}
           </div>
@@ -52,16 +62,23 @@ function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
           {order.isGuest ? " (visiteur)" : ""} · {formatPhone(order.clientPhone)}
           {order.clientEmail && ` · ${order.clientEmail}`}
         </div>
-        <div>
-          {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers, flight.stops)} · {orderBaggageLabel(order)}
-          {order.gate && ` · prix trouvé chez ${order.gate}`}
-        </div>
-        {order.bags.freedKilos > 0 && (
-          <div className="text-ink font-semibold">
-            🧳 {removedBagsLabel(order.bags.removed)} (−{formatMoney(order.bags.discount, order.currency)}) :{" "}
-            {formatKg(order.bags.freedKilos)} libérés pour MoveColis
+        {legs.map((leg) => (
+          <div key={leg.leg}>
+            {leg.label && `${leg.label} : `}
+            {leg.leg === "OUTBOUND" && `${flightNameLabel(flight)} · `}
+            {stopsLabel(leg.flight.transfers, leg.flight.stops)} · {orderBaggageLabel(leg)}
+            {leg.leg === "OUTBOUND" && order.gate && ` · prix trouvé chez ${order.gate}`}
           </div>
-        )}
+        ))}
+        {legs
+          .filter((leg) => leg.bags.freedKilos > 0)
+          .map((leg) => (
+            <div key={leg.leg} className="text-ink font-semibold">
+              🧳 {removedBagsLabel(leg.bags.removed)}
+              {leg.label && ` (${leg.label.toLowerCase()})`} (−{formatMoney(leg.bags.discount, order.currency)}) :{" "}
+              {formatKg(leg.bags.freedKilos)} libérés pour MoveColis
+            </div>
+          ))}
         {order.status === "PENDING" && order.paymentInfoSentAt && (
           <div className="text-ink font-semibold">
             💳 Numéros de paiement envoyés {timeAgo(order.paymentInfoSentAt)} : en attente de la capture du client
@@ -225,7 +242,7 @@ export default function FlightOrdersAdmin() {
         <ReservationStatusModal
           variant="flight"
           nextStatus={pending.status}
-          summary={`${pending.order.clientName} · ${pending.order.flight.origin.name} → ${pending.order.flight.destination.name} · ${passengersLabel(pending.order)} (${pending.order.reference}).`}
+          summary={`${pending.order.clientName} · ${flightRouteLabel(pending.order.flight.origin.name, pending.order.flight.destination.name, Boolean(pending.order.returnFlight))} · ${passengersLabel(pending.order)} (${pending.order.reference}).`}
           onClose={() => setPending(null)}
           onConfirm={async (note) => {
             const updated = await adminApi.updateFlightOrderStatus(pending.order.id, pending.status, note);

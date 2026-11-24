@@ -153,24 +153,40 @@ function fareOf(link) {
 const localIsoOf = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 16);
 
 /**
- * Arrivée et escales d'un billet, codées par Aviasales dans le paramètre t de son lien, ex.
+ * Vols d'un billet, codés par Aviasales dans le paramètre t de son lien, un bloc par vol, ex.
  *   "QR17975853001797692100001600ABJDOHSVO_…" → compagnie QR · départ 1797585300 · arrivée 1797692100
  *   · durée 1600 min · aéroports ABJ → DOH → SVO
+ *   aller-retour : "AT…SVOCMNABJ18004242001800491100000935ABJCMNSVO_…" → le bloc du retour suit celui de l'aller
  * Les horodatages sont les heures LOCALES (de départ, d'arrivée) écrites comme de l'UTC : vérifié sur les vols
- * vers l'est et vers l'ouest (arrivée − départ = durée ± décalage horaire). Format non documenté : le départ
- * doit correspondre à celui annoncé par l'API, sinon rien n'est déduit.
+ * vers l'est et vers l'ouest (arrivée − départ = durée ± décalage horaire). Durée : trajet complet, escales comprises.
  * Aéroports : départ, aéroports intermédiaires (deux à la suite dans la même ville = changement d'aéroport), arrivée.
  */
-export function parseItinerary(t, departureAt) {
-  const none = { arrivalAt: null, stopAirports: [] };
-  const match = /^[A-Z0-9]{2}(\d{10})(\d{10})(\d{6})((?:[A-Z]{3}){2,})_/.exec(String(t ?? ""));
-  if (!match) return none;
-  const [, departure, arrival, , airports] = match;
-  if (localIsoOf(Number(departure)) !== departureAt) return none;
-  const hours = (Number(arrival) - Number(departure)) / 3600;
+export function parseLegs(t) {
+  const head = /^[A-Z0-9]{2}((?:\d{26}(?:[A-Z]{3}){2,})+)_/.exec(String(t ?? ""));
+  if (!head) return [];
+  return [...head[1].matchAll(/(\d{10})(\d{10})(\d{6})((?:[A-Z]{3}){2,})/g)].map(([, departure, arrival, minutes, airports]) => ({
+    departureAt: localIsoOf(Number(departure)),
+    arrivalAt: localIsoOf(Number(arrival)),
+    hours: (Number(arrival) - Number(departure)) / 3600,
+    durationMinutes: Number(minutes) || null,
+    airports: airports.match(/.{3}/g),
+  }));
+}
+
+/**
+ * Arrivée et escales d'un vol du billet : le départ du bloc doit correspondre à celui annoncé par l'API
+ * (format non documenté : sinon rien n'est déduit). index 0 : aller, 1 : retour.
+ */
+export function parseItinerary(t, departureAt, index = 0) {
+  const none = { arrivalAt: null, stopAirports: [], durationMinutes: null, originAirport: null, destinationAirport: null };
+  const leg = parseLegs(t)[index];
+  if (!leg || leg.departureAt !== departureAt) return none;
   return {
-    arrivalAt: hours > 0 && hours < 96 ? localIsoOf(Number(arrival)) : null,
-    stopAirports: airports.match(/.{3}/g).slice(1, -1),
+    arrivalAt: leg.hours > 0 && leg.hours < 96 ? leg.arrivalAt : null,
+    stopAirports: leg.airports.slice(1, -1),
+    durationMinutes: leg.durationMinutes,
+    originAirport: leg.airports[0],
+    destinationAirport: leg.airports[leg.airports.length - 1],
   };
 }
 
@@ -216,11 +232,13 @@ export async function stopCities(airports) {
 /* ---------- Prix ---------- */
 
 /**
- * Billets aller simple d'un trajet pour un mois donné, du moins cher au plus cher.
- * month : "2026-12" · currency : "EUR" | "RUB" | "USD"
+ * Billets d'un trajet pour un mois de départ, du moins cher au plus cher :
+ *  - aller simple (returnMonth absent)
+ *  - aller-retour : retour dans returnMonth ; le prix est celui des deux vols
+ * month, returnMonth : "2026-12" · currency : "EUR" | "RUB" | "USD"
  * "2026-12-15T10:35:00+03:00" → departureAt "2026-12-15T10:35" (heure locale) + departureUtc (instant exact)
  */
-export async function fetchMonthPrices({ origin, destination, month, currency }) {
+export async function fetchMonthPrices({ origin, destination, month, returnMonth = null, currency }) {
   if (!isConfigured()) {
     throw new AppError(503, "La recherche de billets n'est pas encore configurée (clé API Aviasales manquante).");
   }
@@ -228,7 +246,7 @@ export async function fetchMonthPrices({ origin, destination, month, currency })
     origin,
     destination,
     departure_at: month,
-    one_way: "true",
+    one_way: returnMonth ? "false" : "true",
     direct: "false",
     unique: "false",
     sorting: "price",
@@ -236,6 +254,7 @@ export async function fetchMonthPrices({ origin, destination, month, currency })
     limit: "200",
     page: "1",
   });
+  if (returnMonth) params.set("return_at", returnMonth);
   const body = await getJson(`${env.aviasales.apiUrl}/aviasales/v3/prices_for_dates?${params}`, {
     "X-Access-Token": env.aviasales.token,
   });
@@ -249,6 +268,30 @@ export async function fetchMonthPrices({ origin, destination, month, currency })
     if (!row.airline || Number.isNaN(departureUtc.getTime()) || !(price > 0)) continue;
     const departureAt = String(row.departure_at).slice(0, 16);
     const link = typeof row.link === "string" ? row.link : null;
+    const t = linkParam(link, "t");
+    const outbound = parseItinerary(t, departureAt, 0);
+
+    // Aller-retour : le vol retour (un billet sans retour valable est ignoré)
+    let ret = null;
+    if (returnMonth) {
+      const returnUtc = new Date(row.return_at);
+      if (!row.return_at || Number.isNaN(returnUtc.getTime())) continue;
+      const returnAt = String(row.return_at).slice(0, 16);
+      if (returnAt <= departureAt) continue;
+      const leg = parseItinerary(t, returnAt, 1);
+      ret = {
+        returnAt,
+        returnUtc,
+        returnArrivalAt: leg.arrivalAt,
+        returnOriginAirport: leg.originAirport ?? row.destination_airport ?? null,
+        returnDestinationAirport: leg.destinationAirport ?? row.origin_airport ?? null,
+        returnTransfers: Number(row.return_transfers) || 0,
+        returnStopAirports: leg.stopAirports,
+        // trajet complet du retour, escales comprises (duration_back ne compte que les vols)
+        returnDurationMinutes: leg.durationMinutes ?? (Number(row.duration_back) || null),
+      };
+    }
+
     offers.push({
       origin,
       destination,
@@ -256,12 +299,15 @@ export async function fetchMonthPrices({ origin, destination, month, currency })
       destinationAirport: row.destination_airport ?? null,
       departureAt,
       departureUtc,
-      ...parseItinerary(linkParam(link, "t"), departureAt), // arrivalAt (heure locale), stopAirports
+      arrivalAt: outbound.arrivalAt, // heure locale
+      stopAirports: outbound.stopAirports,
       airline: String(row.airline).slice(0, 3),
       flightNumber: String(row.flight_number ?? "").slice(0, 10) || "—",
       transfers: Number(row.transfers) || 0,
-      // duration = trajet complet, escales comprises (duration_to ne compte que les vols)
-      durationMinutes: Number(row.duration ?? row.duration_to) || null,
+      // trajet complet de l'aller, escales comprises : celui du lien, sinon duration (aller simple) ;
+      // en aller-retour, duration couvre les deux vols et duration_to ne compte que les vols
+      durationMinutes: outbound.durationMinutes ?? (Number(returnMonth ? row.duration_to : row.duration ?? row.duration_to) || null),
+      ...(ret ?? {}),
       sourcePrice: price,
       sourceCurrency,
       link,

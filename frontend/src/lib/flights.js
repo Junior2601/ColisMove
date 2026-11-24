@@ -2,7 +2,7 @@
 //  Billets d'avion : affichage et calcul du total (même calcul que le backend)
 // =========================================================
 
-import { formatNumber, plural } from "./format";
+import { formatNumber, formatTripDate, formatTripTime, plural } from "./format";
 
 // Logo de la compagnie (CDN d'Aviasales) : TK → logo Turkish Airlines
 export const airlineLogoUrl = (code) => `https://pics.avs.io/120/40/${code}.png`;
@@ -133,15 +133,18 @@ export function birthDateLimits(type, departureAt) {
 const monthFmt = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
 const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
-export const formatMonth = (yyyyMm) => capitalize(monthFmt.format(new Date(`${yyyyMm}-01T00:00:00Z`))); // "Décembre 2026"
+const shortMonthFmt = new Intl.DateTimeFormat("fr-FR", { month: "short", year: "numeric", timeZone: "UTC" });
 
-// Mois proposés : celui-ci et les `ahead` suivants → [{ value: "2026-12", label: "Décembre 2026" }]
+export const formatMonth = (yyyyMm) => capitalize(monthFmt.format(new Date(`${yyyyMm}-01T00:00:00Z`))); // "Décembre 2026"
+const formatShortMonth = (yyyyMm) => capitalize(shortMonthFmt.format(new Date(`${yyyyMm}-01T00:00:00Z`))); // "Déc. 2026"
+
+// Mois proposés : celui-ci et les `ahead` suivants → [{ value: "2026-12", label: "Décembre 2026", short: "Déc. 2026" }]
 export function upcomingMonths(ahead = 11) {
   const now = new Date();
   return Array.from({ length: ahead + 1 }, (_, i) => {
     const date = new Date(Date.UTC(now.getFullYear(), now.getMonth() + i, 1));
     const value = date.toISOString().slice(0, 7);
-    return { value, label: formatMonth(value) };
+    return { value, label: formatMonth(value), short: formatShortMonth(value) };
   });
 }
 
@@ -149,6 +152,12 @@ export function upcomingMonths(ahead = 11) {
 export function defaultMonth() {
   const months = upcomingMonths(1);
   return new Date().getDate() > 20 ? months[1].value : months[0].value;
+}
+
+// Mois de retour proposé par défaut : celui qui suit le départ (ou le départ s'il est le dernier proposé)
+export function defaultReturnMonth(month, months) {
+  const index = months.findIndex((m) => m.value === month);
+  return months[Math.min(index + 1, months.length - 1)]?.value ?? month;
 }
 
 /* ---------- Total d'une demande ---------- */
@@ -159,12 +168,13 @@ const round2 = (amount) => Math.round(amount * 100) / 100;
 export const includedBags = (offer, { adults, children }) => offer.checkedBags * (adults + children);
 
 /**
- * Passagers × prix − valises retirées + options (prix × quantité, × nombre de passagers pour une option « par passager »).
- * quantities : { [optionId]: quantité } · bagsKept : valises gardées (tous passagers)
+ * Passagers × prix − valises retirées (aller, puis retour d'un aller-retour) + options (prix × quantité, × nombre de
+ * passagers pour une option « par passager »).
+ * quantities : { [optionId]: quantité } · bagsKept / returnBagsKept : valises gardées sur chaque vol (tous passagers)
  * La réduction des valises ne dépasse jamais le prix des billets (même calcul que le backend).
- * → { lines: [{ label, detail, amount }], total, freedKilos }
+ * → { lines: [{ label, detail, amount }], total, freedKilos, returnFreedKilos }
  */
-export function computeTotal(offer, { adults, children, infants }, quantities, options, formatPrice, bagsKept) {
+export function computeTotal(offer, { adults, children, infants }, quantities, options, formatPrice, bagsKept, returnBagsKept) {
   const lines = [];
   const addPassengers = (count, word, unitPrice) => {
     if (count > 0) lines.push({ label: plural(count, word), detail: `× ${formatPrice(unitPrice)}`, amount: count * unitPrice });
@@ -174,11 +184,20 @@ export function computeTotal(offer, { adults, children, infants }, quantities, o
   addPassengers(infants, "bébé", offer.infantPrice);
 
   const fare = lines.reduce((sum, line) => sum + line.amount, 0);
-  const removed = Math.max(0, includedBags(offer, { adults, children }) - (bagsKept ?? Infinity));
-  if (removed > 0) {
-    const discount = round2(Math.min(removed * offer.bagRefund, fare));
-    lines.push({ label: removedBagsLabel(removed), detail: `× −${formatPrice(offer.bagRefund)}`, amount: -discount });
-  }
+  const roundTrip = Boolean(offer.returnFlight);
+  const included = includedBags(offer, { adults, children });
+  let remaining = fare; // la réduction totale ne dépasse pas le prix des billets
+  const removeBags = (kept, flight) => {
+    const removed = Math.max(0, included - (kept ?? Infinity));
+    if (removed > 0) {
+      const discount = round2(Math.max(0, Math.min(removed * offer.bagRefund, remaining)));
+      remaining -= discount;
+      lines.push({ label: `${removedBagsLabel(removed)}${flight}`, detail: `× −${formatPrice(offer.bagRefund)}`, amount: -discount });
+    }
+    return removed;
+  };
+  const removed = removeBags(bagsKept, roundTrip ? " (aller)" : "");
+  const returnRemoved = roundTrip ? removeBags(returnBagsKept, " (retour)") : 0;
 
   const passengers = adults + children + infants;
   for (const option of options) {
@@ -193,5 +212,34 @@ export function computeTotal(offer, { adults, children, infants }, quantities, o
     lines,
     total: round2(lines.reduce((sum, line) => sum + line.amount, 0)),
     freedKilos: removed * offer.checkedBagKg,
+    returnFreedKilos: returnRemoved * offer.checkedBagKg,
   };
 }
+
+/* ---------- Aller-retour ---------- */
+
+// "Moscou → Abidjan", "Moscou ⇄ Abidjan" (aller-retour)
+export const flightRouteLabel = (origin, destination, roundTrip) => `${origin} ${roundTrip ? "⇄" : "→"} ${destination}`;
+
+/**
+ * Vols d'une demande, chacun avec ses valises : [{ leg, label, flight, bags }]
+ * Aller simple : un vol sans label · aller-retour : "Aller" puis "Retour".
+ */
+export function orderLegs(order) {
+  if (!order.returnFlight) return [{ leg: "OUTBOUND", label: "", flight: order.flight, bags: order.bags }];
+  return [
+    { leg: "OUTBOUND", label: "Aller", flight: order.flight, bags: order.bags },
+    { leg: "RETURN", label: "Retour", flight: order.returnFlight, bags: order.returnBags },
+  ];
+}
+
+// "mar. 15 déc. · 21:30 → 12:00 (+1 j)" : date, heure de départ et d'arrivée (heures locales)
+export const flightTimesLabel = (flight) =>
+  `${formatTripDate(flight.departureAt)} · ${formatTripTime(flight.departureAt)}` +
+  (flight.arrivalAt ? ` → ${arrivalTimeLabel(flight.departureAt, flight.arrivalAt)}` : "");
+
+// "Air France AF 1234" ; vol retour : "Air France" (Aviasales ne donne pas son numéro)
+export const flightNameLabel = (flight) =>
+  [flight.airlineName, flight.flightNumber ? `${flight.airline} ${flight.flightNumber}` : !flight.airlineName && flight.airline]
+    .filter(Boolean)
+    .join(" ");

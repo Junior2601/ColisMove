@@ -7,6 +7,7 @@ import {
   adminOffersQuery,
   createFlightOptionBody,
   freedKilosQuery,
+  freedKilosLegQuery,
   listFlightOrdersQuery,
   sendFlightTicketBody,
   updateFlightOfferBody,
@@ -95,7 +96,7 @@ router.post(
 );
 // Kilos libérés par les valises que les clients ont retirées de leur billet
 router.get("/flights/kilos", validate({ query: freedKilosQuery }), flight.listFreedKilos);
-router.get("/flights/kilos/:id", validate({ params: idParam }), flight.getFreedKilos);
+router.get("/flights/kilos/:id", validate({ params: idParam, query: freedKilosLegQuery }), flight.getFreedKilos);
 router.get("/flights/searches", flight.recentSearches);
 router.get("/flights/offers", validate({ query: adminOffersQuery }), flight.listOffers);
 router.patch("/flights/offers/:id", validate({ params: idParam, body: updateFlightOfferBody }), flight.updateOffer);

@@ -136,6 +136,7 @@ export async function listForUser({ userId, seeAll, limit, offset }, db = pool) 
             t.departure_city, t.arrival_city, t.departure_at,
             f.id AS flight_order_id, f.reference, f.client_id AS flight_client_id, f.client_name AS flight_client_name,
             f.status AS flight_status, f.origin_city, f.destination_city, f.departure_at AS flight_departure_at,
+            f.return_at AS flight_return_at,
             ${OWNER_ID} AS owner_id,
             o.first_name AS owner_first_name, o.last_name AS owner_last_name, o.role AS owner_role,
             lm.body AS last_body, lm.sender_type AS last_sender_type, lm.created_at AS last_created_at,
@@ -172,6 +173,7 @@ export async function listForUser({ userId, seeAll, limit, offset }, db = pool) 
               originCity: row.origin_city,
               destinationCity: row.destination_city,
               departureAt: toLocalIso(row.flight_departure_at),
+              returnAt: row.flight_return_at ? toLocalIso(row.flight_return_at) : null, // aller-retour
             },
           }
         : {

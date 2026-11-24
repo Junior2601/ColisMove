@@ -100,8 +100,13 @@ export async function deleteOption(id, db = pool) {
   return rowCount > 0;
 }
 
-/* ===================== Recherches (cache par trajet et par mois) ===================== */
-// route = { origin: "MOW", destination: "ABJ", month: "2026-12-01" }
+/* ===================== Recherches (cache par trajet, mois de départ et mois de retour) ===================== */
+// route = { origin: "MOW", destination: "ABJ", month: "2026-12-01", returnMonth: "2027-01-01" | null (aller simple) }
+
+// Clé de cache : le mois de retour, ou une date fixe pour l'aller simple (même expression que l'index unique)
+const SEARCH_CONFLICT = "ON CONFLICT (origin, destination, month, (COALESCE(return_month, DATE '1900-01-01')))";
+const SEARCH_SELECT = `SELECT *, to_char(month, 'YYYY-MM') AS month_key, to_char(return_month, 'YYYY-MM') AS return_month_key
+  FROM flight_searches`;
 
 function toSearch(row) {
   if (!row) return null;
@@ -109,6 +114,7 @@ function toSearch(row) {
     origin: row.origin,
     destination: row.destination,
     month: row.month_key, // "2026-12" (DATE lue en texte : pas de conversion de fuseau)
+    returnMonth: row.return_month_key ?? null, // "2027-01" (aller-retour) ou null (aller simple)
     fetchedAt: row.fetched_at,
     offersCount: row.offers_count,
     requests: row.requests,
@@ -116,31 +122,33 @@ function toSearch(row) {
   };
 }
 
-export async function getSearch({ origin, destination, month }, db = pool) {
+export async function getSearch({ origin, destination, month, returnMonth = null }, db = pool) {
   const { rows } = await db.query(
-    `SELECT *, to_char(month, 'YYYY-MM') AS month_key FROM flight_searches WHERE origin = $1 AND destination = $2 AND month = $3::date`,
-    [origin, destination, month]
+    `${SEARCH_SELECT}
+     WHERE origin = $1 AND destination = $2 AND month = $3::date AND return_month IS NOT DISTINCT FROM $4::date`,
+    [origin, destination, month, returnMonth]
   );
   return toSearch(rows[0]);
 }
 
 // Une recherche de client de plus sur ce trajet (statistiques de l'admin)
-export async function recordRequest({ origin, destination, month }, db = pool) {
+export async function recordRequest({ origin, destination, month, returnMonth = null }, db = pool) {
   await db.query(
-    `INSERT INTO flight_searches (origin, destination, month, requests) VALUES ($1, $2, $3::date, 1)
-     ON CONFLICT (origin, destination, month)
+    `INSERT INTO flight_searches (origin, destination, month, return_month, requests) VALUES ($1, $2, $3::date, $4::date, 1)
+     ${SEARCH_CONFLICT}
      DO UPDATE SET requests = flight_searches.requests + 1, last_requested_at = NOW()`,
-    [origin, destination, month]
+    [origin, destination, month, returnMonth]
   );
 }
 
 // Réponse d'Aviasales enregistrée : même NOW() que les billets mis à jour dans la même transaction
-export async function markFetched({ origin, destination, month }, offersCount, db = pool) {
+export async function markFetched({ origin, destination, month, returnMonth = null }, offersCount, db = pool) {
   const { rows } = await db.query(
-    `INSERT INTO flight_searches (origin, destination, month, fetched_at, offers_count) VALUES ($1, $2, $3::date, NOW(), $4)
-     ON CONFLICT (origin, destination, month) DO UPDATE SET fetched_at = NOW(), offers_count = $4
+    `INSERT INTO flight_searches (origin, destination, month, return_month, fetched_at, offers_count)
+     VALUES ($1, $2, $3::date, $4::date, NOW(), $5)
+     ${SEARCH_CONFLICT} DO UPDATE SET fetched_at = NOW(), offers_count = $5
      RETURNING fetched_at`,
-    [origin, destination, month, offersCount]
+    [origin, destination, month, returnMonth, offersCount]
   );
   return rows[0].fetched_at;
 }
@@ -148,7 +156,7 @@ export async function markFetched({ origin, destination, month }, offersCount, d
 // Trajets les plus récemment recherchés par les clients (page admin)
 export async function listRecentSearches(limit = 20, db = pool) {
   const { rows } = await db.query(
-    `SELECT *, to_char(month, 'YYYY-MM') AS month_key FROM flight_searches WHERE month >= date_trunc('month', NOW())::date
+    `${SEARCH_SELECT} WHERE month >= date_trunc('month', NOW())::date
      ORDER BY last_requested_at DESC LIMIT $1`,
     [limit]
   );
@@ -178,6 +186,16 @@ export function toOffer(row) {
     transfers: row.transfers,
     stopAirports: row.stop_airports ? row.stop_airports.split(" ") : [], // ["IST", "SAW", "NCE"]
     durationMinutes: row.duration_minutes,
+    // Vol retour d'un aller-retour ; null : aller simple
+    tripType: row.return_at ? "ROUND_TRIP" : "ONE_WAY",
+    returnAt: row.return_at ? toLocalIso(row.return_at) : null,
+    returnUtc: row.return_utc ?? null,
+    returnArrivalAt: row.return_arrival_at ? toLocalIso(row.return_arrival_at) : null,
+    returnOriginAirport: row.return_origin_airport ?? null,
+    returnDestinationAirport: row.return_destination_airport ?? null,
+    returnTransfers: row.return_transfers ?? null,
+    returnStopAirports: row.return_stop_airports ? row.return_stop_airports.split(" ") : [],
+    returnDurationMinutes: row.return_duration_minutes ?? null,
     sourcePrice: row.source_price,
     sourceCurrency: row.source_currency,
     link: row.link,
@@ -206,7 +224,7 @@ export async function upsertOffers(offers, db = pool) {
   // Un même vol en double dans la réponse : on garde le moins cher (sinon ON CONFLICT échoue)
   const unique = new Map();
   for (const offer of offers) {
-    const key = [offer.departureAt, offer.airline, offer.flightNumber].join("|");
+    const key = [offer.departureAt, offer.airline, offer.flightNumber, offer.returnAt ?? ""].join("|");
     if (!unique.has(key) || unique.get(key).sourcePrice > offer.sourcePrice) unique.set(key, offer);
   }
   if (!unique.size) return 0;
@@ -224,6 +242,14 @@ export async function upsertOffers(offers, db = pool) {
     transfers: o.transfers,
     stop_airports: o.stopAirports?.length ? o.stopAirports.join(" ").slice(0, 60) : null,
     duration_minutes: o.durationMinutes,
+    return_at: o.returnAt ?? null,
+    return_utc: o.returnUtc ? o.returnUtc.toISOString() : null,
+    return_arrival_at: o.returnArrivalAt ?? null,
+    return_origin_airport: o.returnOriginAirport ?? null,
+    return_destination_airport: o.returnDestinationAirport ?? null,
+    return_transfers: o.returnAt ? (o.returnTransfers ?? 0) : null,
+    return_stop_airports: o.returnStopAirports?.length ? o.returnStopAirports.join(" ").slice(0, 60) : null,
+    return_duration_minutes: o.returnDurationMinutes ?? null,
     source_price: o.sourcePrice,
     source_currency: o.sourceCurrency,
     link: o.link,
@@ -237,19 +263,26 @@ export async function upsertOffers(offers, db = pool) {
   const { rowCount } = await db.query(
     `INSERT INTO flight_offers (origin, destination, origin_airport, destination_airport, departure_at, departure_utc,
                                 arrival_at, airline, flight_number, transfers, stop_airports, duration_minutes,
+                                return_at, return_utc, return_arrival_at, return_origin_airport, return_destination_airport,
+                                return_transfers, return_stop_airports, return_duration_minutes,
                                 source_price, source_currency, link, gate,
                                 fare_checked_bags, fare_bag_kg, fare_cabin_bag, fare_changeable, fare_refundable)
      SELECT origin, destination, origin_airport, destination_airport, departure_at, departure_utc,
             arrival_at, airline, flight_number, transfers, stop_airports, duration_minutes,
+            return_at, return_utc, return_arrival_at, return_origin_airport, return_destination_airport,
+            return_transfers, return_stop_airports, return_duration_minutes,
             source_price, source_currency, link, gate,
             fare_checked_bags, fare_bag_kg, fare_cabin_bag, fare_changeable, fare_refundable
      FROM jsonb_to_recordset($1::jsonb) AS x(
        origin text, destination text, origin_airport text, destination_airport text, departure_at timestamp,
        departure_utc timestamptz, arrival_at timestamp, airline text, flight_number text, transfers smallint,
        stop_airports text, duration_minutes int,
+       return_at timestamp, return_utc timestamptz, return_arrival_at timestamp, return_origin_airport text,
+       return_destination_airport text, return_transfers smallint, return_stop_airports text, return_duration_minutes int,
        source_price numeric, source_currency text, link text, gate text,
        fare_checked_bags smallint, fare_bag_kg smallint, fare_cabin_bag boolean, fare_changeable boolean, fare_refundable boolean)
-     ON CONFLICT (origin, destination, departure_at, airline, flight_number) DO UPDATE SET
+     ON CONFLICT (origin, destination, departure_at, airline, flight_number, (COALESCE(return_at, TIMESTAMP '1900-01-01')))
+     DO UPDATE SET
        origin_airport = EXCLUDED.origin_airport,
        destination_airport = EXCLUDED.destination_airport,
        departure_utc = EXCLUDED.departure_utc,
@@ -257,6 +290,13 @@ export async function upsertOffers(offers, db = pool) {
        transfers = EXCLUDED.transfers,
        stop_airports = EXCLUDED.stop_airports,
        duration_minutes = EXCLUDED.duration_minutes,
+       return_utc = EXCLUDED.return_utc,
+       return_arrival_at = EXCLUDED.return_arrival_at,
+       return_origin_airport = EXCLUDED.return_origin_airport,
+       return_destination_airport = EXCLUDED.return_destination_airport,
+       return_transfers = EXCLUDED.return_transfers,
+       return_stop_airports = EXCLUDED.return_stop_airports,
+       return_duration_minutes = EXCLUDED.return_duration_minutes,
        source_price = EXCLUDED.source_price,
        source_currency = EXCLUDED.source_currency,
        link = EXCLUDED.link,
@@ -273,13 +313,14 @@ export async function upsertOffers(offers, db = pool) {
 }
 
 /**
- * Billets d'un trajet pour un mois, du moins cher au plus cher.
+ * Billets d'un trajet pour un mois de départ, du moins cher au plus cher : aller simple (returnMonth null) ou
+ * aller-retour avec un retour dans returnMonth (jamais les deux mélangés).
  *  - publicOnly  : sans les billets masqués, ceux absents de la dernière réponse d'Aviasales (freshSince)
  *                  ni ceux qui partent dans moins de minHours heures
  *  - sinon (admin) : tout ce qui n'est pas encore parti
  */
 export async function listForRoute(
-  { origin, destination, month },
+  { origin, destination, month, returnMonth = null },
   { sourceCurrency, freshSince = null, minHours = 0, publicOnly = true },
   db = pool
 ) {
@@ -290,9 +331,11 @@ export async function listForRoute(
        AND source_currency = $4
        AND departure_utc > NOW() + make_interval(hours => $5::int)
        AND ($6::boolean = FALSE OR (NOT hidden AND fetched_at >= $7::timestamptz))
+       AND (CASE WHEN $8::date IS NULL THEN return_at IS NULL
+                 ELSE return_at >= $8::date AND return_at < ($8::date + INTERVAL '1 month') END)
      ORDER BY source_price, departure_at
      LIMIT 300`,
-    [origin, destination, month, sourceCurrency, publicOnly ? minHours : 0, publicOnly, freshSince ?? "-infinity"]
+    [origin, destination, month, sourceCurrency, publicOnly ? minHours : 0, publicOnly, freshSince ?? "-infinity", returnMonth]
   );
   return rows.map(toOffer);
 }

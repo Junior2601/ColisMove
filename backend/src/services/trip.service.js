@@ -46,17 +46,18 @@ export async function listTrips(filters) {
 /**
  * Création d'un voyage. Réutilisé tel quel par le module voyageur :
  * seul ownerId change (l'admin ou le voyageur connecté).
- * flightOrderId (admin) : le voyage met en vente les kilos libérés par les valises retirées sur ce billet.
+ * flightOrderId (admin) : le voyage met en vente les kilos libérés par les valises retirées sur ce billet,
+ * sur son aller ou, pour un aller-retour, sur son retour (flightOrderLeg).
  */
-export async function createTrip(ownerId, data, { flightOrderId = null } = {}) {
+export async function createTrip(ownerId, data, { flightOrderId = null, flightOrderLeg = "OUTBOUND" } = {}) {
   const trip = { stopCity: null, stopDuration: null, ...data };
   assertTripIsConsistent(trip);
   assertNotInPast(trip.departureAt);
   const created = flightOrderId
     ? await withTransaction(async (db) => {
-        await flightOrderService.assertKilosPublishable(flightOrderId, db);
+        await flightOrderService.assertKilosPublishable(flightOrderId, flightOrderLeg, db);
         const saved = await tripModel.create({ ...trip, ownerId }, db);
-        await flightOrderService.linkKilosTrip(flightOrderId, saved.id, db);
+        await flightOrderService.linkKilosTrip(flightOrderId, saved.id, flightOrderLeg, db);
         return saved;
       })
     : await tripModel.create({ ...trip, ownerId });

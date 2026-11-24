@@ -16,7 +16,7 @@ import { layoutVariantFor, useAuth } from "../context/AuthContext";
 import { useConversation } from "../hooks/useConversation";
 import { useFlash } from "../hooks/useFlash";
 import {
-  dayLabel, formatClock, formatDateTime, formatKg, formatMoney, formatPhone, formatTripDate, formatTripTime, ownerLabel,
+  dayLabel, formatClock, formatDateTime, formatKg, formatMoney, formatPhone, formatTripDate, ownerLabel,
   routeLabel,
 } from "../lib/format";
 import { decodeId } from "../lib/hashid";
@@ -24,7 +24,9 @@ import {
   CANCELLABLE_FLIGHT_ORDER_STATUSES, CANCELLABLE_RESERVATION_STATUSES, FLIGHT_ORDER_STATUS, NEXT_FLIGHT_ORDER_STEP,
   NEXT_RESERVATION_STEP, RESERVATION_STATUS,
 } from "../lib/status";
-import { arrivalTimeLabel, orderBaggageLabel, passengersLabel, removedBagsLabel, stopsLabel } from "../lib/flights";
+import {
+  flightNameLabel, flightTimesLabel, orderBaggageLabel, orderLegs, passengersLabel, removedBagsLabel, flightRouteLabel, stopsLabel,
+} from "../lib/flights";
 
 // La conversation porte sur une réservation de kilos ou sur une demande de billet d'avion
 const subjectOf = (detail) => (detail.kind === "FLIGHT" ? detail.flightOrder : detail.reservation);
@@ -148,6 +150,8 @@ function ConversationHeader({ detail, onAction, onPickImage, onPaymentUpdated, o
 function FlightOrderHeader({ detail, onAction, onSendPaymentInfo, sendingPaymentInfo, onPickImage }) {
   const { flightOrder: order, viewerSide } = detail;
   const { flight } = order;
+  const roundTrip = Boolean(order.returnFlight);
+  const legs = orderLegs(order); // aller (et retour), chacun avec ses valises
   const status = FLIGHT_ORDER_STATUS[order.status];
   const next = NEXT_FLIGHT_ORDER_STEP[order.status];
   const canManage = viewerSide === "OWNER" || viewerSide === "ADMIN";
@@ -161,24 +165,36 @@ function FlightOrderHeader({ detail, onAction, onSendPaymentInfo, sendingPayment
       <div className="flex justify-between items-start gap-2.5">
         <div className="min-w-0">
           <div className="font-extrabold text-[15.5px]">
-            ✈️ {flight.origin.name} → {flight.destination.name} · {formatTripDate(flight.departureAt)} ·{" "}
-            {formatTripTime(flight.departureAt)}
-            {flight.arrivalAt && ` → ${arrivalTimeLabel(flight.departureAt, flight.arrivalAt)}`}
+            ✈️ {flightRouteLabel(flight.origin.name, flight.destination.name, roundTrip)}
+            {!roundTrip && ` · ${flightTimesLabel(flight)}`}
           </div>
+          {/* Aller-retour : une ligne par vol */}
+          {roundTrip &&
+            legs.map((leg) => (
+              <div key={leg.leg} className="text-[13.5px] font-bold">
+                <span className="text-primary">{leg.label}</span> · {flightTimesLabel(leg.flight)}
+              </div>
+            ))}
           <div className="text-[13px] text-muted">
             <span className="font-mono font-bold text-ink">{order.reference}</span> · {passengersLabel(order)} ·{" "}
             <b className="text-ink">{formatMoney(order.totalAmount, order.currency)}</b>
           </div>
-          <div className="text-[13px] text-muted">
-            {flight.airlineName} {flight.airline} {flight.flightNumber} · {stopsLabel(flight.transfers, flight.stops)} ·{" "}
-            {orderBaggageLabel(order)}
-          </div>
-          {order.bags.removed > 0 && (
-            <div className="text-[13px] text-muted">
-              🧳 {removedBagsLabel(order.bags.removed)} : −{formatMoney(order.bags.discount, order.currency)}
-              {canManage && ` · ${formatKg(order.bags.freedKilos)} libérés pour MoveColis`}
+          {legs.map((leg) => (
+            <div key={leg.leg} className="text-[13px] text-muted">
+              {leg.label && `${leg.label} : `}
+              {leg.leg === "OUTBOUND" && `${flightNameLabel(flight)} · `}
+              {stopsLabel(leg.flight.transfers, leg.flight.stops)} · {orderBaggageLabel(leg)}
             </div>
-          )}
+          ))}
+          {legs
+            .filter((leg) => leg.bags.removed > 0)
+            .map((leg) => (
+              <div key={leg.leg} className="text-[13px] text-muted">
+                🧳 {removedBagsLabel(leg.bags.removed)}
+                {leg.label && ` (${leg.label.toLowerCase()})`} : −{formatMoney(leg.bags.discount, order.currency)}
+                {canManage && ` · ${formatKg(leg.bags.freedKilos)} libérés pour MoveColis`}
+              </div>
+            ))}
           {order.options.length > 0 && (
             <div className="text-[13px] text-muted">
               Options : {order.options.map((o) => (o.quantity > 1 ? `${o.label} × ${o.quantity}` : o.label)).join(", ")}
@@ -671,7 +687,7 @@ export default function Conversation() {
           }
           summary={
             isFlight
-              ? `${detail.flightOrder.clientName} · ${detail.flightOrder.flight.origin.name} → ${detail.flightOrder.flight.destination.name} · ${passengersLabel(detail.flightOrder)} (${detail.flightOrder.reference}).`
+              ? `${detail.flightOrder.clientName} · ${flightRouteLabel(detail.flightOrder.flight.origin.name, detail.flightOrder.flight.destination.name, Boolean(detail.flightOrder.returnFlight))} · ${passengersLabel(detail.flightOrder)} (${detail.flightOrder.reference}).`
               : `${detail.reservation.clientName} · ${formatKg(detail.reservation.kilos)} · ${routeLabel(detail.trip)} (${detail.reservation.trackingCode}).`
           }
           onClose={() => setPendingStatus(null)}

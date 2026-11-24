@@ -514,12 +514,14 @@ CREATE TABLE IF NOT EXISTS flight_searches (
   origin             CHAR(3) NOT NULL,          -- code IATA de la ville (MOW, ABJ…)
   destination        CHAR(3) NOT NULL,
   month              DATE    NOT NULL,          -- premier jour du mois de départ
+  return_month       DATE,                      -- premier jour du mois de retour (NULL : aller simple)
   fetched_at         TIMESTAMPTZ,               -- dernière réponse d'Aviasales (NULL : jamais obtenue)
   offers_count       INT NOT NULL DEFAULT 0,
   requests           INT NOT NULL DEFAULT 0,    -- nombre de recherches des clients
-  last_requested_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (origin, destination, month)
+  last_requested_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_flight_searches_route
+  ON flight_searches (origin, destination, month, (COALESCE(return_month, DATE '1900-01-01')));
 CREATE INDEX IF NOT EXISTS idx_flight_searches_recent ON flight_searches(last_requested_at DESC);
 
 -- ---------------------------------------------------------
@@ -539,7 +541,16 @@ CREATE TABLE IF NOT EXISTS flight_offers (
   transfers            SMALLINT    NOT NULL DEFAULT 0,
   stop_airports        VARCHAR(60),              -- aéroports d'escale : "DOH" ou "IST SAW NCE" (NULL = direct ou inconnu)
   duration_minutes     INT,
-  source_price         NUMERIC(12,2) NOT NULL,   -- prix Aviasales
+  -- Vol retour d'un billet aller-retour (NULL : aller simple), heures locales comme l'aller
+  return_at                  TIMESTAMP,
+  return_utc                 TIMESTAMPTZ,
+  return_arrival_at          TIMESTAMP,
+  return_origin_airport      VARCHAR(3),
+  return_destination_airport VARCHAR(3),
+  return_transfers           SMALLINT,
+  return_stop_airports       VARCHAR(60),
+  return_duration_minutes    INT,
+  source_price         NUMERIC(12,2) NOT NULL,   -- prix Aviasales (aller-retour : prix des deux vols)
   source_currency      VARCHAR(3)  NOT NULL,
   link                 TEXT,                     -- chemin de la recherche sur aviasales.ru (achat par l'admin)
   gate                 VARCHAR(80),              -- agence qui vend ce prix sur Aviasales (Trip.com, Wingie…)
@@ -559,10 +570,11 @@ CREATE TABLE IF NOT EXISTS flight_offers (
   hidden               BOOLEAN NOT NULL DEFAULT FALSE,
   edited_at            TIMESTAMPTZ,
   edited_by            INT REFERENCES users(id) ON DELETE SET NULL,
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT uq_flight_offer UNIQUE (origin, destination, departure_at, airline, flight_number)
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Un même aller avec deux retours différents = deux billets
+CREATE UNIQUE INDEX IF NOT EXISTS uq_flight_offer
+  ON flight_offers (origin, destination, departure_at, airline, flight_number, (COALESCE(return_at, TIMESTAMP '1900-01-01')));
 CREATE INDEX IF NOT EXISTS idx_flight_offers_route ON flight_offers(origin, destination, departure_at);
 
 -- ---------------------------------------------------------
@@ -612,6 +624,14 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   checked_bag_kg       SMALLINT     NOT NULL DEFAULT 23,
   link                 TEXT,
   gate                 VARCHAR(80),
+  -- Vol retour d'un aller-retour (NULL : aller simple)
+  return_at                  TIMESTAMP,
+  return_arrival_at          TIMESTAMP,
+  return_origin_airport      VARCHAR(3),
+  return_destination_airport VARCHAR(3),
+  return_transfers           SMALLINT,
+  return_stops               JSONB NOT NULL DEFAULT '[]',
+  return_duration_minutes    INT,
 
   -- Passagers et prix, figés et calculés côté serveur
   adults               SMALLINT     NOT NULL CHECK (adults BETWEEN 1 AND 9),
@@ -628,6 +648,12 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   bag_discount         NUMERIC(14,2) NOT NULL DEFAULT 0,     -- réduction totale appliquée
   freed_kilos          NUMERIC(6,2)  NOT NULL DEFAULT 0,     -- kilos libérés pour MoveColis
   kilos_trip_id        INT REFERENCES trips(id) ON DELETE SET NULL, -- voyage publié avec ces kilos
+  -- Valises du vol retour (aller-retour) : retirées indépendamment de l'aller
+  return_bags_included SMALLINT      NOT NULL DEFAULT 0,
+  return_bags_kept     SMALLINT      NOT NULL DEFAULT 0,
+  return_bag_discount  NUMERIC(14,2) NOT NULL DEFAULT 0,
+  return_freed_kilos   NUMERIC(6,2)  NOT NULL DEFAULT 0,
+  return_kilos_trip_id INT REFERENCES trips(id) ON DELETE SET NULL,
   total_amount         NUMERIC(14,2) NOT NULL CHECK (total_amount >= 0),
   currency             VARCHAR(3)   NOT NULL,
 
@@ -642,11 +668,13 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   CONSTRAINT chk_flight_orders_phone    CHECK (client_phone ~ '^[0-9]{8,15}$'),
   CONSTRAINT chk_flight_orders_seats    CHECK (adults + children + infants <= 9),
   CONSTRAINT chk_flight_orders_infants  CHECK (infants <= adults),         -- un bébé par adulte
-  CONSTRAINT chk_flight_orders_bags     CHECK (bags_kept BETWEEN 0 AND bags_included)
+  CONSTRAINT chk_flight_orders_bags     CHECK (bags_kept BETWEEN 0 AND bags_included),
+  CONSTRAINT chk_flight_orders_return_bags CHECK (return_bags_kept BETWEEN 0 AND return_bags_included)
 );
 CREATE INDEX IF NOT EXISTS idx_flight_orders_status  ON flight_orders(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_flight_orders_client  ON flight_orders(client_id);
 CREATE INDEX IF NOT EXISTS idx_flight_orders_freed_kilos ON flight_orders(departure_at) WHERE freed_kilos > 0;
+CREATE INDEX IF NOT EXISTS idx_flight_orders_return_freed_kilos ON flight_orders(return_at) WHERE return_freed_kilos > 0;
 DROP TRIGGER IF EXISTS trg_flight_orders_updated_at ON flight_orders;
 CREATE TRIGGER trg_flight_orders_updated_at BEFORE UPDATE ON flight_orders FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 

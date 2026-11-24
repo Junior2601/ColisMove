@@ -5,8 +5,8 @@ import { Badge, ChipRow, ErrorState, FilterChip, Loader, Notice, btnOutline, btn
 import { adminApi } from "../../api/admin";
 import { useApi } from "../../hooks/useApi";
 import { useSocketEvent } from "../../hooks/useSocketEvent";
-import { formatKg, formatMoney, formatTripDate, formatTripTime } from "../../lib/format";
-import { arrivalTimeLabel, formatDuration, removedBagsLabel, stopsLabel } from "../../lib/flights";
+import { formatKg, formatMoney } from "../../lib/format";
+import { flightNameLabel, flightTimesLabel, formatDuration, removedBagsLabel, stopsLabel } from "../../lib/flights";
 import { encodeId, paths } from "../../lib/hashid";
 import { FLIGHT_ORDER_STATUS } from "../../lib/status";
 
@@ -32,24 +32,28 @@ function SummaryTile({ label, kilos }) {
   );
 }
 
+// Une carte par vol qui a libéré des kilos : l'aller, ou le retour d'un aller-retour (item.leg)
 function KilosCard({ item }) {
   const { flight, bags, trip } = item;
   const state = KILOS_STATE[item.kilosState];
   const canPublish = item.kilosState === "AVAILABLE" && !item.hasDeparted;
   const tripStillOnline = trip && trip.status === "PUBLISHED";
+  const isReturn = item.leg === "RETURN";
+  const legLabel = item.tripType === "ROUND_TRIP" ? (isReturn ? "Vol retour" : "Vol aller") : null;
 
   return (
     <div className="border border-line-light rounded-2xl bg-white p-4">
       <div className="flex justify-between items-start gap-3">
         <div className="min-w-0">
+          {legLabel && (
+            <div className="text-[11.5px] font-bold uppercase tracking-wide text-primary">{legLabel} d&apos;un aller-retour</div>
+          )}
           <div className="font-extrabold text-[15px]">
-            {flight.origin.name} → {flight.destination.name} · {formatTripDate(flight.departureAt)} ·{" "}
-            {formatTripTime(flight.departureAt)}
-            {flight.arrivalAt && ` → ${arrivalTimeLabel(flight.departureAt, flight.arrivalAt)}`}
+            {flight.origin.name} → {flight.destination.name} · {flightTimesLabel(flight)}
           </div>
           <div className="text-xs text-muted">
             {[
-              `${flight.airlineName ?? ""} ${flight.airline} ${flight.flightNumber}`.trim(),
+              flightNameLabel(flight),
               stopsLabel(flight.transfers, flight.stops),
               flight.durationMinutes && `${formatDuration(flight.durationMinutes)} de trajet`,
             ].filter(Boolean).join(" · ")}
@@ -90,7 +94,7 @@ function KilosCard({ item }) {
 
       <div className="flex gap-2 flex-wrap mt-3">
         {canPublish && (
-          <Link to={`/publier?billet=${encodeId(item.id)}`} className={`${btnPrimary} ${btnSm}`}>
+          <Link to={`/publier?billet=${encodeId(item.id)}${isReturn ? "&vol=retour" : ""}`} className={`${btnPrimary} ${btnSm}`}>
             <PackagePlus size={15} /> Publier ces kilos
           </Link>
         )}
@@ -127,7 +131,8 @@ export default function FreedKilosAdmin() {
     <>
       <p className="text-sm text-muted mb-3">
         Quand un client garde moins de valises que celles incluses dans son billet, les kilos libérés arrivent ici. Une
-        fois le billet payé, publiez-les comme un voyage MoveColis : les clients sont prévenus.
+        fois le billet payé, publiez-les comme un voyage MoveColis : les clients sont prévenus. Un aller-retour donne une
+        carte par vol : les kilos de l&apos;aller et ceux du retour se publient séparément.
       </p>
 
       <ChipRow>
@@ -160,7 +165,7 @@ export default function FreedKilosAdmin() {
             ) : (
               <div className="flex flex-col gap-3">
                 {data.items.map((item) => (
-                  <KilosCard key={item.id} item={item} />
+                  <KilosCard key={`${item.id}-${item.leg}`} item={item} />
                 ))}
               </div>
             )}

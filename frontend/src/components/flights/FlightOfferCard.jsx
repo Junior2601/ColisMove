@@ -65,8 +65,19 @@ export function FlightLine({ offer }) {
   );
 }
 
-// Carte d'un billet dans les résultats de recherche
+// "Aller · mar. 15 déc. · départ 21:30" au-dessus de la ligne d'un vol (sans "Aller" pour un aller simple)
+export function LegTitle({ label, departureAt, className = "" }) {
+  return (
+    <div className={`text-[13px] font-bold mb-1 ${className}`}>
+      {label && <span className="text-primary">{label} · </span>}
+      {formatTripDate(departureAt)} · départ {formatTripTime(departureAt)}
+    </div>
+  );
+}
+
+// Carte d'un billet dans les résultats de recherche (aller-retour : une ligne par vol)
 export default function FlightOfferCard({ offer }) {
+  const back = offer.returnFlight;
   return (
     <Link
       to={paths.flightOffer(offer.id)}
@@ -81,14 +92,20 @@ export default function FlightOfferCard({ offer }) {
         </div>
         <div className="text-right shrink-0">
           <div className="text-[19px] font-extrabold tracking-tight">{formatMoney(offer.adultPrice, offer.currency)}</div>
-          <div className="text-[11.5px] text-muted">par adulte</div>
+          <div className="text-[11.5px] text-muted">{back ? "aller-retour, par adulte" : "par adulte"}</div>
         </div>
       </div>
 
-      <div className="text-[13px] font-bold">
-        {formatTripDate(offer.departureAt)} · départ {formatTripTime(offer.departureAt)}
+      <div>
+        <LegTitle label={back && "Aller"} departureAt={offer.departureAt} />
+        <FlightLine offer={offer} />
+        {back && (
+          <>
+            <LegTitle label="Retour" departureAt={back.departureAt} className="mt-2" />
+            <FlightLine offer={back} />
+          </>
+        )}
       </div>
-      <FlightLine offer={offer} />
 
       <div className="text-[12.5px] text-muted flex items-center gap-1.5 mt-1">
         <Luggage size={15} className="shrink-0" /> {baggageLabel(offer)}

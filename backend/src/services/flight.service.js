@@ -6,6 +6,8 @@
  * Enfant (2-11 ans) et bébé (< 2 ans) : pourcentage du prix adulte (Aviasales ne donne que le prix adulte).
  * Valises en soute : le client peut en retirer, chacune réduit le prix de `bagRefund` ;
  * les kilos libérés reviennent à MoveColis (espace « Kilos disponibles » de l'admin).
+ * Aller-retour : un seul prix pour les deux vols ; les valises se retirent vol par vol (aller, retour ou les deux),
+ * chaque vol libérant ses propres kilos.
  */
 import { withTransaction } from "../config/db.js";
 import * as flightModel from "../models/flight.model.js";
@@ -55,20 +57,24 @@ export function canRemoveBags({ departureAt, departureUtc }) {
 }
 
 /**
- * Valises en soute d'une demande. Bébés exclus : seuls adultes et enfants ont des valises.
- * bagsKept : valises gardées par le client (undefined = toutes celles incluses).
- * La réduction ne dépasse jamais le prix des billets.
+ * Valises en soute d'un vol de la demande (aller, ou retour d'un aller-retour). Bébés exclus : seuls adultes et
+ * enfants ont des valises. bagsKept : valises gardées par le client (undefined = toutes celles incluses).
+ * maxDiscount : la réduction ne dépasse jamais ce qui reste du prix des billets.
  */
-export function computeBags(offer, { adults, children }, bagsKept, fare) {
+export function computeBags(offer, { adults, children }, bagsKept, maxDiscount, leg = "OUTBOUND") {
+  const isReturn = leg === "RETURN";
   const included = offer.checkedBags * (adults + children);
   const kept = bagsKept ?? included;
+  const flight = isReturn ? " (vol retour)" : "";
   if (kept < 0 || kept > included) {
-    throw badRequest(`Valises en soute : entre 0 et ${included} pour ${adults + children} passager(s).`);
+    throw badRequest(`Valises en soute${flight} : entre 0 et ${included} pour ${adults + children} passager(s).`);
   }
   if (kept < included && !(offer.bagRefund > 0)) throw badRequest("Ce billet ne permet pas de retirer de valise.");
-  if (kept < included && !offer.bagRemovalOpen) {
+  if (kept < included && !(isReturn ? offer.returnBagRemovalOpen : offer.bagRemovalOpen)) {
     throw badRequest(
-      "Retirer une valise n'est plus possible : le départ est dans moins de 2 semaines. Gardez toutes les valises incluses."
+      isReturn
+        ? "Retirer une valise du vol retour n'est plus possible : il part dans moins de 2 semaines. Gardez toutes les valises incluses."
+        : "Retirer une valise n'est plus possible : le départ est dans moins de 2 semaines. Gardez toutes les valises incluses."
     );
   }
   const removed = included - kept;
@@ -77,21 +83,25 @@ export function computeBags(offer, { adults, children }, bagsKept, fare) {
     kept,
     removed,
     refund: offer.bagRefund,
-    discount: round2(Math.min(removed * offer.bagRefund, fare)),
+    discount: round2(Math.max(0, Math.min(removed * offer.bagRefund, maxDiscount))),
     freedKilos: removed * offer.checkedBagKg,
   };
 }
 
 /**
  * Total d'une demande, calculé côté serveur (le navigateur fait le même calcul pour l'affichage) :
- * passagers × prix − valises retirées + options (prix × quantité, × nombre de passagers pour une option « par passager »).
+ * passagers × prix − valises retirées (aller, puis retour) + options (prix × quantité, × nombre de passagers pour une
+ * option « par passager »). returnBags : null pour un aller simple.
  */
-export function computeTotal(offer, { adults, children, infants }, chosenOptions, availableOptions, bagsKept) {
+export function computeTotal(offer, { adults, children, infants }, chosenOptions, availableOptions, bagsKept, returnBagsKept) {
   const byId = new Map(availableOptions.map((option) => [option.id, option]));
   const passengers = adults + children + infants;
   const fare = adults * offer.adultPrice + children * offer.childPrice + infants * offer.infantPrice;
   const bags = computeBags(offer, { adults, children }, bagsKept, fare);
-  let total = fare - bags.discount;
+  const returnBags = offer.returnFlight
+    ? computeBags(offer, { adults, children }, returnBagsKept, fare - bags.discount, "RETURN")
+    : null;
+  let total = fare - bags.discount - (returnBags?.discount ?? 0);
 
   const lines = [];
   for (const { id, quantity } of chosenOptions) {
@@ -103,7 +113,7 @@ export function computeTotal(offer, { adults, children, infants }, chosenOptions
     lines.push({ id: option.id, label: option.label, unit: option.unit, quantity, unitPrice: option.price, amount });
     total += amount;
   }
-  return { options: lines, bags, totalAmount: round2(total) };
+  return { options: lines, bags, returnBags, totalAmount: round2(total) };
 }
 
 export async function getSettings() {
@@ -112,18 +122,40 @@ export async function getSettings() {
 
 /* ===================== Cache des prix Aviasales ===================== */
 
-// "2026-12" → mois de départ accepté (du mois en cours à +11 mois), sinon erreur
-function monthRoute(origin, destination, month) {
+const monthIndex = (yyyyMm) => {
+  const [year, monthNumber] = yyyyMm.split("-").map(Number);
+  return year * 12 + monthNumber - 1;
+};
+
+/**
+ * "2026-12" (et "2027-01" pour un aller-retour) → trajet accepté, sinon erreur :
+ * départ du mois en cours à +11 mois ; retour entre le mois du départ et +11 mois.
+ */
+function monthRoute(origin, destination, month, returnMonth = null) {
   if (origin === destination) throw badRequest("Choisissez deux villes différentes.");
   const now = new Date();
   const current = now.getUTCFullYear() * 12 + now.getUTCMonth();
-  const [year, monthNumber] = month.split("-").map(Number);
-  const asked = year * 12 + monthNumber - 1;
+  const asked = monthIndex(month);
   if (asked < current || asked > current + FLIGHT_SEARCH_MONTHS_AHEAD) {
     throw badRequest(`Choisissez un mois de départ entre ce mois-ci et les ${FLIGHT_SEARCH_MONTHS_AHEAD} mois suivants.`);
   }
-  return { origin, destination, month: `${month}-01` };
+  if (returnMonth) {
+    const back = monthIndex(returnMonth);
+    if (back < asked) throw badRequest("Le mois de retour ne peut pas être avant le mois de départ.");
+    if (back > current + FLIGHT_SEARCH_MONTHS_AHEAD) {
+      throw badRequest(`Choisissez un mois de retour dans les ${FLIGHT_SEARCH_MONTHS_AHEAD} mois qui viennent.`);
+    }
+  }
+  return { origin, destination, month: `${month}-01`, returnMonth: returnMonth ? `${returnMonth}-01` : null };
 }
+
+/** Trajet de la recherche d'un billet déjà enregistré (mois de son départ, et de son retour) */
+const routeOfOffer = (offer) => ({
+  origin: offer.origin,
+  destination: offer.destination,
+  month: `${offer.departureAt.slice(0, 7)}-01`,
+  returnMonth: offer.returnAt ? `${offer.returnAt.slice(0, 7)}-01` : null,
+});
 
 const inflight = new Map(); // deux recherches simultanées du même trajet → un seul appel à Aviasales
 
@@ -137,13 +169,14 @@ async function ensureFresh(route, settings, { force = false } = {}) {
   const fresh = search?.fetchedAt && Date.now() - search.fetchedAt.getTime() < settings.cacheHours * 3600_000;
   if (fresh && !force) return { fetchedAt: search.fetchedAt, stale: false };
 
-  const key = `${route.origin}-${route.destination}-${route.month}`;
+  const key = `${route.origin}-${route.destination}-${route.month}-${route.returnMonth ?? "aller"}`;
   if (!inflight.has(key)) {
     const job = (async () => {
       const offers = await aviasales.fetchMonthPrices({
         origin: route.origin,
         destination: route.destination,
         month: route.month.slice(0, 7),
+        returnMonth: route.returnMonth ? route.returnMonth.slice(0, 7) : null,
         currency: settings.sourceCurrency,
       });
       return withTransaction(async (db) => {
@@ -192,10 +225,28 @@ export function baggageOf(offer, settings) {
   };
 }
 
+// Vol retour d'un aller-retour, tel que le client le voit (null : aller simple)
+function returnFlightOf(offer, { cities, stops }) {
+  if (!offer.returnAt) return null;
+  return {
+    origin: cities.get(offer.destination), // le retour part de la ville d'arrivée de l'aller
+    destination: cities.get(offer.origin),
+    departureAt: offer.returnAt, // heure locale de départ du retour
+    arrivalAt: offer.returnArrivalAt, // heure locale d'arrivée (null = non précisée par Aviasales)
+    originAirport: offer.returnOriginAirport,
+    destinationAirport: offer.returnDestinationAirport,
+    transfers: offer.returnTransfers ?? 0,
+    stops: stops.get(offer.returnStopAirports.join(" ")) ?? [],
+    durationMinutes: offer.returnDurationMinutes,
+  };
+}
+
 // Billet tel que le client le voit (prix calculés, bagages, noms des villes et de la compagnie)
-function toPublicOffer(offer, settings, { cities, airlines, stops }) {
+function toPublicOffer(offer, settings, names) {
+  const { cities, airlines, stops } = names;
   return {
     id: offer.id,
+    tripType: offer.tripType, // ONE_WAY | ROUND_TRIP
     origin: cities.get(offer.origin) ?? { code: offer.origin, name: offer.origin },
     destination: cities.get(offer.destination) ?? { code: offer.destination, name: offer.destination },
     originAirport: offer.originAirport,
@@ -211,6 +262,9 @@ function toPublicOffer(offer, settings, { cities, airlines, stops }) {
     ...baggageOf(offer, settings), // checkedBags (par passager, hors bébés), checkedBagKg, cabinKg, baggageSource
     bagRefund: settings.bagRefund, // réduction par valise retirée (0 = impossible)
     bagRemovalOpen: canRemoveBags(offer), // false si le départ est dans moins de 2 semaines
+    // Aller-retour : le vol retour, et ses valises retirables jusqu'à 2 semaines avant son propre départ
+    returnFlight: returnFlightOf(offer, names),
+    returnBagRemovalOpen: offer.returnAt ? canRemoveBags({ departureAt: offer.returnAt, departureUtc: offer.returnUtc }) : false,
     info: offer.info,
     ...priceOffer(offer, settings),
     currency: settings.currency,
@@ -220,7 +274,9 @@ function toPublicOffer(offer, settings, { cities, airlines, stops }) {
 // Noms des villes, des compagnies et des villes d'escale (mis en cache par aviasales.service)
 async function lookups(offers) {
   const codes = [...new Set(offers.flatMap((o) => [o.origin, o.destination]))];
-  const routes = [...new Set(offers.map((o) => o.stopAirports?.join(" ")).filter(Boolean))];
+  const routes = [
+    ...new Set(offers.flatMap((o) => [o.stopAirports?.join(" "), o.returnStopAirports?.join(" ")]).filter(Boolean)),
+  ];
   const [cityList, airlines, stopList] = await Promise.all([
     Promise.all(codes.map((code) => aviasales.cityByCode(code))),
     aviasales.airlineNames([...new Set(offers.map((o) => o.airline).filter(Boolean))]),
@@ -253,11 +309,14 @@ export async function searchCities(term) {
   return aviasales.searchCities(term);
 }
 
-/** Billets d'un trajet pour un mois : { origin, destination, month, items, fetchedAt, stale } */
-export async function searchOffers({ origin, destination, month, direct }) {
+/**
+ * Billets d'un trajet pour un mois : { origin, destination, month, returnMonth, items, fetchedAt, stale }
+ * returnMonth : billets aller-retour avec un retour ce mois-là (absent : aller simple)
+ */
+export async function searchOffers({ origin, destination, month, returnMonth = null, direct }) {
   const settings = await flightModel.getSettings();
   assertEnabled(settings);
-  const route = monthRoute(origin, destination, month);
+  const route = monthRoute(origin, destination, month, returnMonth);
 
   await flightModel.recordRequest(route);
   const { fetchedAt, stale } = await ensureFresh(route, settings);
@@ -266,13 +325,16 @@ export async function searchOffers({ origin, destination, month, direct }) {
     freshSince: fetchedAt,
     minHours: settings.minHoursBeforeDeparture,
   });
-  if (direct) offers = offers.filter((offer) => offer.transfers === 0);
+  // Vols directs : à l'aller comme au retour
+  if (direct) offers = offers.filter((offer) => offer.transfers === 0 && !offer.returnTransfers);
 
   const names = await lookups([{ origin, destination, airline: "" }, ...offers]);
   return {
     origin: names.cities.get(origin),
     destination: names.cities.get(destination),
     month,
+    returnMonth,
+    tripType: returnMonth ? "ROUND_TRIP" : "ONE_WAY",
     currency: settings.currency,
     fetchedAt,
     stale,
@@ -291,8 +353,7 @@ export async function getAvailableOffer(id) {
   const unavailable = notFound("Ce billet n'est plus disponible. Relancez la recherche pour voir les prix du moment.");
   if (!offer || offer.hidden || offer.sourceCurrency !== settings.sourceCurrency) throw unavailable;
 
-  const route = { origin: offer.origin, destination: offer.destination, month: `${offer.departureAt.slice(0, 7)}-01` };
-  const { fetchedAt } = await ensureFresh(route, settings);
+  const { fetchedAt } = await ensureFresh(routeOfOffer(offer), settings);
   const tooSoon = offer.departureUtc.getTime() < Date.now() + settings.minHoursBeforeDeparture * 3600_000;
   const latest = await flightModel.findOffer(id); // prix éventuellement mis à jour par ensureFresh
   if (tooSoon || latest.fetchedAt < fetchedAt) throw unavailable;
@@ -369,10 +430,13 @@ function toAdminOffer(offer, settings, names, fetchedAt) {
   };
 }
 
-/** Tous les billets d'un trajet pour un mois (masqués et périmés compris). refresh : redemande à Aviasales. */
-export async function listAdminOffers({ origin, destination, month, refresh }) {
+/**
+ * Tous les billets d'un trajet pour un mois (masqués et périmés compris). refresh : redemande à Aviasales.
+ * returnMonth : billets aller-retour avec un retour ce mois-là (absent : aller simple)
+ */
+export async function listAdminOffers({ origin, destination, month, returnMonth = null, refresh }) {
   const settings = await flightModel.getSettings();
-  const route = monthRoute(origin, destination, month);
+  const route = monthRoute(origin, destination, month, returnMonth);
   let fetchedAt = null;
   let fetchError = null;
   try {
@@ -386,6 +450,8 @@ export async function listAdminOffers({ origin, destination, month, refresh }) {
     origin: names.cities.get(origin),
     destination: names.cities.get(destination),
     month,
+    returnMonth,
+    tripType: returnMonth ? "ROUND_TRIP" : "ONE_WAY",
     currency: settings.currency,
     fetchedAt,
     fetchError,
@@ -397,11 +463,7 @@ export async function updateOffer(id, data, adminId) {
   const offer = await flightModel.updateOfferAdmin(id, data, adminId);
   if (!offer) throw notFound("Billet introuvable.");
   const [settings, names] = await Promise.all([flightModel.getSettings(), lookups([offer])]);
-  const search = await flightModel.getSearch({
-    origin: offer.origin,
-    destination: offer.destination,
-    month: `${offer.departureAt.slice(0, 7)}-01`,
-  });
+  const search = await flightModel.getSearch(routeOfOffer(offer));
   return toAdminOffer(offer, settings, names, search?.fetchedAt);
 }
 

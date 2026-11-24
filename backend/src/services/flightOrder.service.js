@@ -3,6 +3,8 @@
  * Le client configure son billet (passagers, valises, options) et envoie une demande : une conversation s'ouvre
  * avec l'équipe MoveColis, qui confirme le prix, encaisse, achète le billet sur Aviasales puis l'envoie par e-mail.
  * Les valises retirées par le client libèrent des kilos que MoveColis peut revendre (voyage publié par l'admin).
+ * Aller-retour : le vol retour est figé dans la demande avec ses propres valises ; le client en retire à l'aller,
+ * au retour ou sur les deux, et chaque vol libère ses kilos (publiables séparément).
  */
 import { withTransaction } from "../config/db.js";
 import { env, isDev } from "../config/env.js";
@@ -37,7 +39,15 @@ const plural = (count, word) => `${count} ${word}${count > 1 ? "s" : ""}`;
 const formatDuration = (minutes) =>
   minutes ? `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")}` : null;
 
-export const routeOf = (order) => `${order.flight.origin.name} → ${order.flight.destination.name}`;
+// "Moscou → Abidjan", "Moscou ⇄ Abidjan" (aller-retour)
+export const routeOf = (order) =>
+  `${order.flight.origin.name} ${order.returnFlight ? "⇄" : "→"} ${order.flight.destination.name}`;
+
+// "mar. 15 déc.", "aller mar. 15 déc. · retour mer. 20 janv." (aller-retour)
+export const travelDatesText = (order) =>
+  order.returnFlight
+    ? `aller ${formatLocalDate(order.flight.departureAt)} · retour ${formatLocalDate(order.returnFlight.departureAt)}`
+    : formatLocalDate(order.flight.departureAt);
 
 // "vol direct", "escale à Doha", "2 escales : Istanbul, Nice" (code de l'aéroport si la ville est inconnue)
 export function stopsText(transfers, stops = []) {
@@ -131,29 +141,45 @@ export function withPurchaseUrl(order) {
 // Vue client : sans le lien d'achat Aviasales ni ce que MoveColis fait des kilos libérés
 export function forCustomer(order) {
   const {
-    link: _link, gate: _gate, purchaseUrl: _purchaseUrl, agentId: _agentId, kilosTripId: _kilosTripId, ...rest
+    link: _link, gate: _gate, purchaseUrl: _purchaseUrl, agentId: _agentId, kilosTripId: _kilosTripId,
+    returnKilosTripId: _returnKilosTripId, ...rest
   } = order;
   return rest;
 }
 
+// "Abidjan → Moscou · mer. 20 janv. à 05:50, arrivée à 22:05"
+const legText = (from, to, departureAt, arrivalAt) =>
+  `${from} → ${to} · ${formatLocalDate(departureAt)} à ${departureAt.slice(11, 16)}` +
+  (arrivalAt ? `, arrivée à ${arrivalText(departureAt, arrivalAt)}` : "");
+
+// "Valises en soute (retour) : 1 sur 2 incluses (1 valise retirée : −50 €)"
+function bagsLine(bags, currency, label = "") {
+  const removed = bags.removed ? ` (${removedBagsText(bags.removed)} : −${formatMoney(bags.discount, currency)})` : "";
+  return `Valises en soute${label} : ${bags.kept} sur ${bags.included} incluses${removed}`;
+}
+
 // Premier message de la conversation, envoyé au nom du client
 function firstMessage(order, offer) {
+  const back = offer.returnFlight;
   const lines = [
-    "Bonjour ! Je souhaite acheter ce billet d'avion :",
-    `✈️ ${offer.origin.name} → ${offer.destination.name} · ${formatLocalDate(offer.departureAt)} à ${offer.departureAt.slice(11, 16)}` +
-      (offer.arrivalAt ? `, arrivée à ${arrivalText(offer.departureAt, offer.arrivalAt)}` : ""),
+    `Bonjour ! Je souhaite acheter ce billet d'avion${back ? " aller-retour" : ""} :`,
+    `✈️ ${back ? "Aller : " : ""}${legText(offer.origin.name, offer.destination.name, offer.departureAt, offer.arrivalAt)}`,
     [
       `${offer.airlineName} ${offer.airline} ${offer.flightNumber}`,
       stopsText(offer.transfers, offer.stops),
       formatDuration(offer.durationMinutes),
     ].filter(Boolean).join(" · "),
-    `Passagers : ${passengersText(order)} (${passengerNames(order)})`,
   ];
+  if (back) {
+    lines.push(
+      `↩️ Retour : ${legText(offer.destination.name, offer.origin.name, back.departureAt, back.arrivalAt)}`,
+      [stopsText(back.transfers, back.stops), formatDuration(back.durationMinutes)].filter(Boolean).join(" · ")
+    );
+  }
+  lines.push(`Passagers : ${passengersText(order)} (${passengerNames(order)})`);
   if (order.bags.included > 0) {
-    const removed = order.bags.removed
-      ? ` (${removedBagsText(order.bags.removed)} : −${formatMoney(order.bags.discount, order.currency)})`
-      : "";
-    lines.push(`Valises en soute : ${order.bags.kept} sur ${order.bags.included} incluses${removed}`);
+    lines.push(bagsLine(order.bags, order.currency, back ? " (aller)" : ""));
+    if (order.returnBags) lines.push(bagsLine(order.returnBags, order.currency, " (retour)"));
   }
   if (order.options.length) {
     lines.push(`Options : ${order.options.map((o) => (o.quantity > 1 ? `${o.label} × ${o.quantity}` : o.label)).join(", ")}`);
@@ -179,8 +205,11 @@ export async function createOrder(input, { user = null } = {}) {
   const { offer, publicOffer } = await flightService.getAvailableOffer(input.offerId);
   const travellers = await checkPassengers(input.passengers, passengers, offer.departureAt);
   const options = await flightModel.listOptions({ activeOnly: true });
-  const { options: lines, bags, totalAmount } = flightService.computeTotal(
-    publicOffer, passengers, input.options, options, input.checkedBags
+  if (!publicOffer.returnFlight && input.returnCheckedBags !== undefined) {
+    throw badRequest("Ce billet est un aller simple : pas de valises pour un vol retour.");
+  }
+  const { options: lines, bags, returnBags, totalAmount } = flightService.computeTotal(
+    publicOffer, passengers, input.options, options, input.checkedBags, input.returnCheckedBags
   );
 
   // Prix modifié depuis l'affichage (nouvelle réponse d'Aviasales, règle changée par l'admin) : le client valide à nouveau
@@ -217,6 +246,15 @@ export async function createOrder(input, { user = null } = {}) {
     checkedBags: publicOffer.checkedBags,
     cabinKg: publicOffer.cabinKg,
     checkedBagKg: publicOffer.checkedBagKg,
+    // Aller-retour : vol retour et ses valises (null pour un aller simple)
+    returnAt: offer.returnAt,
+    returnArrivalAt: offer.returnArrivalAt,
+    returnOriginAirport: offer.returnOriginAirport,
+    returnDestinationAirport: offer.returnDestinationAirport,
+    returnTransfers: offer.returnTransfers,
+    returnStops: publicOffer.returnFlight?.stops ?? [],
+    returnDurationMinutes: offer.returnDurationMinutes,
+    returnBags,
     link: offer.link,
     gate: offer.gate,
     ...passengers,
@@ -253,11 +291,14 @@ export async function createOrder(input, { user = null } = {}) {
   });
 
   // Tous les admins sont prévenus ; la page « Billets d'avion » se met à jour en direct
-  const freed = bags.freedKilos > 0 ? ` · ${removedBagsText(bags.removed)} (${formatKilos(bags.freedKilos)} libérés)` : "";
+  const removedBags = bags.removed + (returnBags?.removed ?? 0);
+  const freedKilos = bags.freedKilos + (returnBags?.freedKilos ?? 0);
+  const freed = freedKilos > 0 ? ` · ${removedBagsText(removedBags)} (${formatKilos(freedKilos)} libérés)` : "";
+  const route = `${order.originCity} ${returnBags ? "⇄" : "→"} ${order.destinationCity}`;
   await notificationService.notifySafely(adminIds, {
     type: "FLIGHT_ORDER",
-    title: "Demande de billet ✈️",
-    body: `${order.clientName} · ${order.originCity} → ${order.destinationCity} · ${passengersText(order)} · ${formatMoney(totalAmount, order.currency)}${freed}`,
+    title: returnBags ? "Demande de billet aller-retour ✈️" : "Demande de billet ✈️",
+    body: `${order.clientName} · ${route} · ${passengersText(order)} · ${formatMoney(totalAmount, order.currency)}${freed}`,
     link: paths.conversation(created.conversationId),
     groupKey: notificationService.conversationGroup(created.conversationId),
   });
@@ -275,7 +316,7 @@ export async function createOrder(input, { user = null } = {}) {
 export function paymentInfoMessage(order, paymentInfo) {
   return [
     `💳 Paiement de votre billet ${order.reference}`,
-    `${routeOf(order)} · ${formatLocalDate(order.flight.departureAt)}`,
+    `${routeOf(order)} · ${travelDatesText(order)}`,
     `Montant à payer : ${formatMoney(order.totalAmount, order.currency)}`,
     "",
     paymentInfo.trim(),
@@ -342,7 +383,7 @@ export async function updateStatus(
     await notificationService.notifySafely(recipients, {
       type: "FLIGHT_ORDER_STATUS",
       title,
-      body: `${updated.reference} · ${routeOf(updated)} · ${formatLocalDate(updated.flight.departureAt)}${note ? ` — ${note}` : ""}`,
+      body: `${updated.reference} · ${routeOf(updated)} · ${travelDatesText(updated)}${note ? ` — ${note}` : ""}`,
       link: paths.conversation(updated.conversationId),
       groupKey: notificationService.conversationGroup(updated.conversationId),
     });
@@ -361,23 +402,29 @@ export async function updateStatus(
 
 /* ===================== Envoi du billet par e-mail ===================== */
 
-// Lignes du reçu : vol, passagers, bagages
+// "mar. 15 déc. à 17:00 (heure locale)"
+const localTimeText = (localIso) => `${formatLocalDate(localIso)} à ${localIso.slice(11, 16)} (heure locale)`;
+
+// Lignes du reçu : vol (aller, et retour d'un aller-retour), passagers, bagages
 function ticketDetails(order) {
-  const { flight } = order;
+  const { flight, returnFlight: back } = order;
+  const legRows = (label, leg, company) => [
+    [label, `${leg.origin.name} → ${leg.destination.name} · ${localTimeText(leg.departureAt)}`],
+    ...(leg.arrivalAt ? [[`Arrivée${back ? ` (${label.toLowerCase()})` : ""}`, localTimeText(leg.arrivalAt)]] : []),
+    [
+      back ? `Trajet (${label.toLowerCase()})` : "Compagnie",
+      [company, stopsText(leg.transfers, leg.stops), formatDuration(leg.durationMinutes)].filter(Boolean).join(" · "),
+    ],
+  ];
+  const company = `${flight.airlineName ?? flight.airline} ${flight.airline} ${flight.flightNumber}`;
   return [
     ["Référence", order.reference],
-    ["Vol", `${routeOf(order)} · ${formatLocalDate(flight.departureAt)} à ${flight.departureAt.slice(11, 16)} (heure locale)`],
-    ...(flight.arrivalAt ? [["Arrivée", `${formatLocalDate(flight.arrivalAt)} à ${flight.arrivalAt.slice(11, 16)} (heure locale)`]] : []),
-    [
-      "Compagnie",
-      [
-        `${flight.airlineName ?? flight.airline} ${flight.airline} ${flight.flightNumber}`,
-        stopsText(flight.transfers, flight.stops),
-        formatDuration(flight.durationMinutes),
-      ].filter(Boolean).join(" · "),
-    ],
+    ...(back ? [["Billet", "Aller-retour"]] : []),
+    ...legRows(back ? "Aller" : "Vol", flight, company),
+    ...(back ? legRows("Retour", back, null) : []),
     ["Passagers", `${passengersText(order)} · ${passengerNames(order)}`],
-    ["Bagages", bagsText(order)],
+    [back ? "Bagages (aller)" : "Bagages", bagsText(order)],
+    ...(back ? [["Bagages (retour)", bagsText({ flight: back, bags: order.returnBags })]] : []),
   ];
 }
 
@@ -391,7 +438,11 @@ function ticketPriceLines(order) {
   passengers(order.adults, "adulte", order.adultPrice);
   passengers(order.children, "enfant", order.childPrice);
   passengers(order.infants, "bébé", order.infantPrice);
-  if (order.bags.discount > 0) lines.push([removedBagsText(order.bags.removed), `−${money(order.bags.discount)}`]);
+  const back = order.returnBags;
+  if (order.bags.discount > 0) {
+    lines.push([`${removedBagsText(order.bags.removed)}${back ? " (aller)" : ""}`, `−${money(order.bags.discount)}`]);
+  }
+  if (back?.discount > 0) lines.push([`${removedBagsText(back.removed)} (retour)`, `−${money(back.discount)}`]);
   for (const option of order.options) {
     lines.push([option.quantity > 1 ? `${option.label} × ${option.quantity}` : option.label, money(option.amount)]);
   }
@@ -464,7 +515,7 @@ export async function sendTicket(id, { email, note = null, attachments = [] }, {
 const KILOS_SELLABLE_STATUSES = ["PAID", "ISSUED"];
 
 /**
- * État des kilos libérés d'une demande :
+ * État des kilos libérés sur un vol d'une demande (aller, ou retour d'un aller-retour) :
  *  WAITING_PAYMENT (billet pas encore payé) · AVAILABLE (à publier) · PUBLISHED (voyage en ligne) · CANCELLED
  */
 function kilosState(item) {
@@ -475,7 +526,10 @@ function kilosState(item) {
 
 const toKilosView = (item) => ({ ...withPurchaseUrl(item), kilosState: kilosState(item) });
 
-/** Espace « Kilos disponibles » de l'admin, vol par vol */
+/**
+ * Espace « Kilos disponibles » de l'admin, vol par vol : un aller-retour donne une ligne par vol qui a libéré des
+ * kilos (leg OUTBOUND / RETURN ; flight et bags sont ceux de ce vol).
+ */
 export async function listFreedKilos({ period }) {
   const items = (await flightOrderModel.listFreedKilos({ period })).map(toKilosView);
   const sum = (state) =>
@@ -483,9 +537,12 @@ export async function listFreedKilos({ period }) {
   return { items, summary: { available: sum("AVAILABLE"), waiting: sum("WAITING_PAYMENT"), published: sum("PUBLISHED") } };
 }
 
-export async function getFreedKilos(id) {
-  const item = await flightOrderModel.findFreedKilos(id);
-  if (!item) throw notFound("Aucun kilo libéré sur cette demande de billet.");
+/** Kilos libérés sur un vol d'une demande (leg : OUTBOUND, ou RETURN pour le vol retour) */
+export async function getFreedKilos(id, leg = "OUTBOUND") {
+  const item = await flightOrderModel.findFreedKilos(id, leg);
+  if (!item) {
+    throw notFound(leg === "RETURN" ? "Aucun kilo libéré sur le vol retour de cette demande." : "Aucun kilo libéré sur cette demande de billet.");
+  }
   // Demande antérieure aux villes d'escale : seuls les aéroports sont connus, on retrouve les villes (formulaire pré-rempli)
   if (item.flight.stops.some((stop) => !stop.name)) {
     item.flight.stops = await aviasales.stopCities(item.flight.stops.flatMap((stop) => stop.airports));
@@ -493,19 +550,24 @@ export async function getFreedKilos(id) {
   return toKilosView(item);
 }
 
-/** Vérifie, dans la transaction de publication du voyage, que ces kilos peuvent être mis en vente */
-export async function assertKilosPublishable(orderId, db) {
-  const order = await flightOrderModel.findFreedKilosForUpdate(orderId, db);
-  if (!order || !(order.bags.freedKilos > 0)) throw notFound("Aucun kilo libéré sur cette demande de billet.");
+/**
+ * Vérifie, dans la transaction de publication du voyage, que les kilos de ce vol (leg) peuvent être mis en vente.
+ * Les kilos de l'aller et ceux du retour se publient chacun dans leur voyage.
+ */
+export async function assertKilosPublishable(orderId, leg, db) {
+  const order = await flightOrderModel.findFreedKilosForUpdate(orderId, leg, db);
+  if (!order || !(order.bags?.freedKilos > 0)) {
+    throw notFound(leg === "RETURN" ? "Aucun kilo libéré sur le vol retour de cette demande." : "Aucun kilo libéré sur cette demande de billet.");
+  }
   if (order.status === "CANCELLED") throw conflict("La demande de billet est annulée : ces kilos ne sont plus disponibles.");
   if (!KILOS_SELLABLE_STATUSES.includes(order.status)) {
     throw conflict("Le billet n'est pas encore payé : ces kilos seront disponibles après le paiement.");
   }
-  if (order.hasDeparted) throw conflict("Ce vol est déjà parti.");
+  if (order.hasDeparted) throw conflict(leg === "RETURN" ? "Ce vol retour est déjà parti." : "Ce vol est déjà parti.");
   if (order.kilosTripId && order.tripStatus !== "CANCELLED") throw conflict("Ces kilos sont déjà publiés dans un voyage.");
   return order;
 }
 
-export async function linkKilosTrip(orderId, tripId, db) {
-  await flightOrderModel.linkKilosTrip(orderId, tripId, db);
+export async function linkKilosTrip(orderId, tripId, leg, db) {
+  await flightOrderModel.linkKilosTrip(orderId, tripId, leg, db);
 }
