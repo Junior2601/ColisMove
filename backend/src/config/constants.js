@@ -59,6 +59,9 @@ export const FLIGHT_ORDER_NOTIFICATION_TITLES = {
 export const FLIGHT_SOURCE_CURRENCIES = ["RUB", "EUR", "USD"];
 export const FLIGHT_MAX_PASSENGERS = 9;
 export const FLIGHT_SEARCH_MONTHS_AHEAD = 11; // Aviasales ne garde pas de prix au-delà d'environ un an
+// Réponse vide d'Aviasales (aucun prix ce jour-là) : redemandée après 15 min, pas après la durée du cache.
+// Aviasales n'a que les prix cherchés récemment sur son site : un billet peut apparaître peu après.
+export const FLIGHT_EMPTY_SEARCH_CACHE_MINUTES = 15;
 export const FLIGHT_MAX_ROUND_TRIP_DAYS = 30; // aller-retour : Aviasales ne cherche pas de retour plus de 30 jours après le départ
 export const FLIGHT_BAG_REMOVAL_DAYS = 14; // retrait de valises (réduction) jusqu'à 2 semaines avant le départ, pas après
 

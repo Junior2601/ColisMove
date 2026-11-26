@@ -13,7 +13,8 @@ import { withTransaction } from "../config/db.js";
 import * as flightModel from "../models/flight.model.js";
 import * as aviasales from "./aviasales.service.js";
 import {
-  FLIGHT_BAG_REMOVAL_DAYS, FLIGHT_MAX_PASSENGERS, FLIGHT_MAX_ROUND_TRIP_DAYS, FLIGHT_SEARCH_MONTHS_AHEAD,
+  FLIGHT_BAG_REMOVAL_DAYS, FLIGHT_EMPTY_SEARCH_CACHE_MINUTES, FLIGHT_MAX_PASSENGERS, FLIGHT_MAX_ROUND_TRIP_DAYS,
+  FLIGHT_SEARCH_MONTHS_AHEAD,
 } from "../config/constants.js";
 import { badRequest, conflict, notFound } from "../utils/AppError.js";
 
@@ -197,12 +198,17 @@ const inflight = new Map(); // deux recherches simultanées du même trajet → 
 
 /**
  * Redemande les prix à Aviasales si ceux du cache ont plus de `cacheHours` heures (ou si force).
+ * Une réponse vide est redemandée bien plus tôt (15 min) : Aviasales n'a que les prix cherchés récemment sur son site,
+ * un billet peut donc apparaître peu après (ex. Moscou → Yaoundé).
  * En cas de panne d'Aviasales, les derniers prix connus restent affichés (stale: true).
  * Renvoie { fetchedAt, stale, error } — fetchedAt = date de la dernière réponse d'Aviasales.
  */
 async function ensureFresh(route, settings, { force = false } = {}) {
   const search = await flightModel.getSearch(route);
-  const fresh = search?.fetchedAt && Date.now() - search.fetchedAt.getTime() < settings.cacheHours * 3600_000;
+  const maxAgeMs = search?.offersCount === 0
+    ? Math.min(FLIGHT_EMPTY_SEARCH_CACHE_MINUTES * 60_000, settings.cacheHours * 3600_000)
+    : settings.cacheHours * 3600_000;
+  const fresh = search?.fetchedAt && Date.now() - search.fetchedAt.getTime() < maxAgeMs;
   if (fresh && !force) return { fetchedAt: search.fetchedAt, stale: false };
 
   const key = [route.origin, route.destination, route.month, route.returnMonth ?? "aller", route.day ?? "", route.returnDay ?? ""].join("-");
