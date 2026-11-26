@@ -64,6 +64,8 @@ export const FLIGHT_SEARCH_MONTHS_AHEAD = 11; // Aviasales ne garde pas de prix 
 export const FLIGHT_EMPTY_SEARCH_CACHE_MINUTES = 15;
 export const FLIGHT_MAX_ROUND_TRIP_DAYS = 30; // aller-retour : Aviasales ne cherche pas de retour plus de 30 jours après le départ
 export const FLIGHT_BAG_REMOVAL_DAYS = 14; // retrait de valises (réduction) jusqu'à 2 semaines avant le départ, pas après
+// Page « Vols en direct » (recherche Aviasales en temps réel, widget de marque blanche Travelpayouts)
+export const FLIGHT_LIVE_PATH = "/vols-en-direct";
 
 // Variables utilisables dans le modèle de premier message
 export const TEMPLATE_VARIABLES = ["kilos", "trajet", "date", "nom", "code"];

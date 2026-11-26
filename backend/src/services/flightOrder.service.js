@@ -29,6 +29,7 @@ import {
 import { paths } from "../utils/hashid.js";
 import { formatLocalDate, todayIso } from "../utils/date.js";
 import { formatKilos, formatMoney } from "../utils/money.js";
+import { flightSearchCode, parseShareLink } from "../utils/liveSearch.js";
 import { generateTrackingCode } from "../utils/trackingCode.js";
 import { generateToken, hashToken } from "../utils/token.js";
 import { AppError, badRequest, conflict, forbidden, notFound } from "../utils/AppError.js";
@@ -192,7 +193,8 @@ function firstMessage(order, offer) {
 
 /* ===================== Demande (client connecté ou visiteur) ===================== */
 
-export async function createOrder(input, { user = null } = {}) {
+// Compte client ou visiteur, nombre de passagers : mêmes règles pour un billet de nos résultats ou un vol en direct
+function checkRequester(user, input) {
   if (user && user.role !== "CLIENT") {
     throw forbidden("Les billets s'achètent avec un compte client ou sans compte.");
   }
@@ -201,7 +203,59 @@ export async function createOrder(input, { user = null } = {}) {
     throw badRequest(`${FLIGHT_MAX_PASSENGERS} passagers au maximum par demande.`);
   }
   if (passengers.infants > passengers.adults) throw badRequest("Un bébé par adulte au maximum (sur les genoux).");
+  return passengers;
+}
 
+// L'admin principal reçoit la conversation ; tous les admins sont prévenus
+async function adminRecipients() {
+  const adminIds = await userModel.listAdminIds();
+  if (!adminIds.length) throw new AppError(503, "La vente de billets est momentanément indisponible.");
+  return { adminIds, agentId: Math.min(...adminIds) };
+}
+
+/**
+ * Enregistre la demande, ouvre sa conversation avec un premier message au nom du client (firstMessageOf(order),
+ * une fois la référence connue) et prévient les admins. Un visiteur reçoit le jeton secret de sa conversation.
+ */
+async function openOrder(order, { user, adminIds, firstMessageOf, notification }) {
+  const created = await withTransaction(async (db) => {
+    // Référence unique : nouvel essai en cas de collision (rarissime)
+    let orderId = null;
+    for (let attempt = 0; attempt < 5 && !orderId; attempt++) {
+      order.reference = generateTrackingCode(new Date(), "BA");
+      orderId = await flightOrderModel.create(order, db);
+    }
+    if (!orderId) throw new AppError(503, "Réessayez dans un instant.");
+
+    // Conversation : le visiteur y accède avec un jeton secret, dont on ne garde que l'empreinte
+    const guestToken = user ? null : generateToken();
+    const conversationId = await conversationModel.create(
+      { flightOrderId: orderId, guestTokenHash: guestToken ? hashToken(guestToken) : null },
+      db
+    );
+    await messageModel.create(
+      { conversationId, senderType: "CUSTOMER", senderId: user?.id ?? null, body: firstMessageOf(order) },
+      db
+    );
+    return { orderId, conversationId, guestToken };
+  });
+
+  // Tous les admins sont prévenus ; la page « Billets d'avion » se met à jour en direct
+  await notificationService.notifySafely(adminIds, {
+    type: "FLIGHT_ORDER",
+    ...notification,
+    link: paths.conversation(created.conversationId),
+    groupKey: notificationService.conversationGroup(created.conversationId),
+  });
+  realtime.notifyInbox({ conversationId: created.conversationId, ownerId: order.agentId, clientId: user?.id });
+  realtime.emitToAdmins("flight-orders:updated", {});
+
+  const saved = await flightOrderModel.findById(created.orderId);
+  return { flightOrder: forCustomer(saved), conversationId: created.conversationId, guestToken: created.guestToken };
+}
+
+export async function createOrder(input, { user = null } = {}) {
+  const passengers = checkRequester(user, input);
   const { offer, publicOffer } = await flightService.getAvailableOffer(input.offerId);
   const travellers = await checkPassengers(input.passengers, passengers, offer.departureAt);
   const options = await flightModel.listOptions({ activeOnly: true });
@@ -217,9 +271,7 @@ export async function createOrder(input, { user = null } = {}) {
     throw conflict(`Le prix vient d'être mis à jour : ${formatMoney(totalAmount, publicOffer.currency)}. Vérifiez puis renvoyez votre demande.`);
   }
 
-  const adminIds = await userModel.listAdminIds();
-  if (!adminIds.length) throw new AppError(503, "La vente de billets est momentanément indisponible.");
-  const agentId = Math.min(...adminIds); // l'admin principal reçoit la conversation
+  const { adminIds, agentId } = await adminRecipients();
 
   const order = {
     offerId: offer.id,
@@ -268,45 +320,259 @@ export async function createOrder(input, { user = null } = {}) {
     currency: publicOffer.currency,
   };
 
-  const created = await withTransaction(async (db) => {
-    // Référence unique : nouvel essai en cas de collision (rarissime)
-    let orderId = null;
-    for (let attempt = 0; attempt < 5 && !orderId; attempt++) {
-      order.reference = generateTrackingCode(new Date(), "BA");
-      orderId = await flightOrderModel.create(order, db);
-    }
-    if (!orderId) throw new AppError(503, "Réessayez dans un instant.");
-
-    // Conversation : le visiteur y accède avec un jeton secret, dont on ne garde que l'empreinte
-    const guestToken = user ? null : generateToken();
-    const conversationId = await conversationModel.create(
-      { flightOrderId: orderId, guestTokenHash: guestToken ? hashToken(guestToken) : null },
-      db
-    );
-    await messageModel.create(
-      { conversationId, senderType: "CUSTOMER", senderId: user?.id ?? null, body: firstMessage(order, publicOffer) },
-      db
-    );
-    return { orderId, conversationId, guestToken };
-  });
-
-  // Tous les admins sont prévenus ; la page « Billets d'avion » se met à jour en direct
   const removedBags = bags.removed + (returnBags?.removed ?? 0);
   const freedKilos = bags.freedKilos + (returnBags?.freedKilos ?? 0);
   const freed = freedKilos > 0 ? ` · ${removedBagsText(removedBags)} (${formatKilos(freedKilos)} libérés)` : "";
   const route = `${order.originCity} ${returnBags ? "⇄" : "→"} ${order.destinationCity}`;
-  await notificationService.notifySafely(adminIds, {
-    type: "FLIGHT_ORDER",
-    title: returnBags ? "Demande de billet aller-retour ✈️" : "Demande de billet ✈️",
-    body: `${order.clientName} · ${route} · ${passengersText(order)} · ${formatMoney(totalAmount, order.currency)}${freed}`,
-    link: paths.conversation(created.conversationId),
-    groupKey: notificationService.conversationGroup(created.conversationId),
+  return openOrder(order, {
+    user,
+    adminIds,
+    firstMessageOf: (saved) => firstMessage(saved, publicOffer),
+    notification: {
+      title: returnBags ? "Demande de billet aller-retour ✈️" : "Demande de billet ✈️",
+      body: `${order.clientName} · ${route} · ${passengersText(order)} · ${formatMoney(totalAmount, order.currency)}${freed}`,
+    },
   });
-  realtime.notifyInbox({ conversationId: created.conversationId, ownerId: agentId, clientId: user?.id });
-  realtime.emitToAdmins("flight-orders:updated", {});
+}
 
-  const saved = await flightOrderModel.findById(created.orderId);
-  return { flightOrder: forCustomer(saved), conversationId: created.conversationId, guestToken: created.guestToken };
+/* ===================== Vol choisi dans la recherche en direct ===================== */
+
+// Une recherche en direct va jusqu'à un an : au-delà, aucune compagnie ne vend encore
+const LIVE_MAX_DAYS_AHEAD = 366;
+
+// "· départ vers 21:30" (heure vue par le client), rien si elle n'est pas indiquée
+const seenTimeText = (time) => (time ? ` · départ vers ${time}` : "");
+
+// Premier message d'une demande en direct, envoyé au nom du client
+function liveFirstMessage(order) {
+  const live = order.liveRequest;
+  const lines = [
+    "Bonjour ! J'ai choisi ce vol dans la recherche en direct et je souhaite le payer avec MoveColis :",
+    `✈️ ${order.returnAt ? "Aller : " : ""}${order.originCity} → ${order.destinationCity} · ` +
+      `${formatLocalDate(order.departureAt)}${seenTimeText(live.departureTime)}`,
+  ];
+  if (order.returnAt) {
+    lines.push(
+      `↩️ Retour : ${order.destinationCity} → ${order.originCity} · ` +
+        `${formatLocalDate(order.returnAt)}${seenTimeText(live.returnDepartureTime)}`
+    );
+  }
+  lines.push(`Compagnie : ${live.airline}`);
+  if (live.seenPrice) lines.push(`Prix vu : ${live.seenPrice}`);
+  if (live.ticketId) lines.push(`Billet partagé : ${env.appUrl}${flightOrderModel.liveSearchUrl(live)}`);
+  lines.push(`Passagers : ${passengersText(order)} (${passengerNames(order)})`);
+  lines.push(`Nom : ${order.clientName} · E-mail : ${order.clientEmail} · Référence : ${order.reference}`);
+  if (order.note) lines.push(`Note : ${order.note}`);
+  return lines.join("\n");
+}
+
+/**
+ * Demande « vol choisi en direct » : le client a trouvé son vol sur la page « Vols en direct » et le décrit
+ * (compagnie, heures, prix vu, lien « Partager »). La demande s'ouvre sans prix : l'équipe retrouve le vol,
+ * le confirme avec son prix (quoteLiveOrder), puis le parcours habituel suit (paiement, billet par e-mail).
+ */
+export async function createLiveOrder(input, { user = null } = {}) {
+  const passengers = checkRequester(user, input);
+  const settings = await flightService.getSettings();
+  if (!settings.enabled) throw notFound("La vente de billets d'avion n'est pas disponible pour le moment.");
+
+  const today = todayIso();
+  const lastDay = new Date(Date.parse(`${today}T00:00:00Z`) + LIVE_MAX_DAYS_AHEAD * 86_400_000).toISOString().slice(0, 10);
+  if (input.date < today) {
+    throw badRequest("La date de départ est déjà passée.", [{ field: "date", message: "Date de départ passée." }]);
+  }
+  if (input.date > lastDay || (input.returnDate && input.returnDate > lastDay)) {
+    throw badRequest("Choisissez des dates dans l'année qui vient.");
+  }
+  for (const field of ["origin", "destination"]) {
+    // Annuaire indisponible (null) : on ne bloque pas la demande
+    if ((await aviasales.isKnownCity(input[field])) === false) {
+      throw badRequest("Ville inconnue.", [{ field, message: "Choisissez une ville dans la liste." }]);
+    }
+  }
+  const shared = input.shareLink ? parseShareLink(input.shareLink) : null;
+  if (input.shareLink && !shared) {
+    throw badRequest("Vérifiez le lien du billet.", [
+      { field: "shareLink", message: "Collez le lien copié avec « Partager » sur la page Vols en direct, ou laissez vide." },
+    ]);
+  }
+
+  const departureAt = `${input.date}T00:00`; // heure inconnue tant que l'équipe n'a pas confirmé le vol
+  const travellers = await checkPassengers(input.passengers, passengers, departureAt);
+  const [originCity, destinationCity] = await Promise.all([
+    aviasales.cityByCode(input.origin),
+    aviasales.cityByCode(input.destination),
+  ]);
+  const roundTrip = Boolean(input.returnDate);
+  const liveRequest = {
+    airline: input.airline,
+    departureTime: input.departureTime ?? null,
+    returnDepartureTime: roundTrip ? (input.returnDepartureTime ?? null) : null,
+    seenPrice: input.seenPrice ?? null,
+    // Recherche du lien partagé (le billet y est retrouvé), sinon celle de la demande
+    search: shared?.search ?? flightSearchCode({ ...input, ...passengers, returnDate: input.returnDate ?? null }),
+    ticketId: shared?.ticketId ?? null,
+  };
+  const { adminIds, agentId } = await adminRecipients();
+  const noBags = { included: 0, kept: 0, refund: 0, discount: 0, freedKilos: 0 };
+
+  const order = {
+    offerId: null,
+    clientId: user?.id ?? null,
+    agentId,
+    clientName: input.clientName,
+    clientPhone: input.clientPhone,
+    clientEmail: input.clientEmail,
+    note: input.note ?? null,
+    origin: input.origin,
+    destination: input.destination,
+    originCity: originCity.name,
+    destinationCity: destinationCity.name,
+    originAirport: null,
+    destinationAirport: null,
+    departureAt,
+    arrivalAt: null,
+    // Compagnie, numéro, bagages et prix : saisis par l'équipe quand elle confirme le vol
+    airline: null,
+    airlineName: null,
+    flightNumber: null,
+    transfers: 0,
+    stops: [],
+    durationMinutes: null,
+    checkedBags: 0,
+    cabinKg: null,
+    checkedBagKg: settings.checkedBagKg,
+    returnAt: roundTrip ? `${input.returnDate}T00:00` : null,
+    returnBags: roundTrip ? noBags : null,
+    link: `/search/${liveRequest.search}`, // même recherche sur aviasales.ru, pour l'équipe
+    gate: null,
+    ...passengers,
+    passengers: travellers,
+    adultPrice: 0,
+    childPrice: 0,
+    infantPrice: 0,
+    options: [],
+    bags: noBags,
+    totalAmount: 0,
+    currency: settings.currency,
+    liveRequest,
+  };
+
+  const route = `${order.originCity} ${roundTrip ? "⇄" : "→"} ${order.destinationCity}`;
+  const dates = roundTrip
+    ? `${formatLocalDate(order.departureAt)} → ${formatLocalDate(order.returnAt)}`
+    : formatLocalDate(order.departureAt);
+  return openOrder(order, {
+    user,
+    adminIds,
+    firstMessageOf: liveFirstMessage,
+    notification: {
+      title: "Vol choisi en direct ✈️",
+      body: `${order.clientName} · ${route} · ${dates} · ${liveRequest.airline} · ${passengersText(order)} : vol et prix à confirmer`,
+    },
+  });
+}
+
+const round2 = (amount) => Math.round(amount * 100) / 100;
+
+// Message de l'équipe une fois le vol confirmé : vols, compagnie, bagages, prix et total à payer
+function quoteMessage(order, updated) {
+  const { flight, returnFlight: back } = order;
+  const money = (amount) => formatMoney(amount, order.currency);
+  const lines = [
+    updated ? "✈️ Vol et prix mis à jour par l'équipe MoveColis :" : "✈️ Vol confirmé par l'équipe MoveColis :",
+    `${back ? "Aller : " : ""}${legText(flight.origin.name, flight.destination.name, flight.departureAt, flight.arrivalAt)}`,
+    `${flight.airlineName ?? flight.airline} ${flight.airline} ${flight.flightNumber} · ${stopsText(flight.transfers, flight.stops)}`,
+  ];
+  if (back) {
+    lines.push(
+      `Retour : ${legText(back.origin.name, back.destination.name, back.departureAt, back.arrivalAt)}`,
+      stopsText(back.transfers, back.stops)
+    );
+  }
+  lines.push(`Bagages : ${bagsText(order)}${back ? " (aller et retour)" : ""}`);
+  const prices = [
+    [order.adults, "adulte", order.adultPrice],
+    [order.children, "enfant", order.childPrice],
+    [order.infants, "bébé", order.infantPrice],
+  ]
+    .filter(([count]) => count > 0)
+    .map(([count, word, price]) => `${plural(count, word)} × ${money(price)}`);
+  lines.push(`Prix : ${prices.join(" · ")}`, `Total à payer : ${money(order.totalAmount)}`, "");
+  lines.push("Le numéro de paiement va vous être envoyé ici.");
+  return lines.join("\n");
+}
+
+/**
+ * Demande en direct : l'équipe a retrouvé le vol et confirme compagnie, numéro, heures locales, escales, bagages
+ * et prix par passager. Possible tant que la demande est « À traiter » (prix changé : nouvelle confirmation).
+ * Un message récapitulatif part dans la conversation et le client est prévenu.
+ */
+export async function quoteLiveOrder(id, input, { actorId }) {
+  const { updated, messages, requoted } = await withTransaction(async (db) => {
+    const current = await flightOrderModel.findByIdForUpdate(id, db);
+    if (!current) throw notFound("Demande de billet introuvable.");
+    if (!current.liveRequest) throw badRequest("Ce billet vient des résultats MoveColis : son vol et son prix sont déjà connus.");
+    if (current.status !== "PENDING") {
+      throw conflict(`Demande déjà « ${LABELS[current.status]} » : le vol et le prix se confirment avant le paiement.`);
+    }
+    const roundTrip = Boolean(current.returnFlight);
+    const errors = [];
+    if (input.departureAt.slice(0, 10) < todayIso()) errors.push({ field: "departureAt", message: "Ce départ est déjà passé." });
+    if (roundTrip && !input.returnDepartureAt) errors.push({ field: "returnDepartureAt", message: "Date et heure du vol retour." });
+    if (roundTrip && input.returnDepartureAt && input.returnDepartureAt <= input.departureAt) {
+      errors.push({ field: "returnDepartureAt", message: "Le retour part après l'aller." });
+    }
+    if (current.children > 0 && !(input.childPrice > 0)) errors.push({ field: "childPrice", message: "Prix par enfant." });
+    if (current.infants > 0 && !(input.infantPrice > 0)) errors.push({ field: "infantPrice", message: "Prix par bébé." });
+    if (errors.length) throw badRequest("Vérifiez le vol et les prix.", errors);
+
+    const names = await aviasales.airlineNames([input.airline]);
+    const knownName = names.get(input.airline);
+    const asStops = (cities) => cities.map((name) => ({ code: null, name, airports: [] }));
+    await flightOrderModel.saveQuote(
+      id,
+      {
+        ...input,
+        airlineName: knownName && knownName !== input.airline ? knownName : null,
+        stops: asStops(input.stops),
+        returnDepartureAt: roundTrip ? input.returnDepartureAt : null,
+        returnStops: asStops(input.returnStops),
+        bagsIncluded: input.checkedBags * (current.adults + current.children), // hors bébés
+        totalAmount: round2(
+          current.adults * input.adultPrice +
+            current.children * (current.children ? input.childPrice : 0) +
+            current.infants * (current.infants ? input.infantPrice : 0)
+        ),
+        childPrice: current.children ? input.childPrice : 0,
+        infantPrice: current.infants ? input.infantPrice : 0,
+      },
+      db
+    );
+    const saved = await flightOrderModel.findById(id, db);
+    const systemMessages = await messageModel.createSystemForFlightOrder(id, quoteMessage(saved, Boolean(current.quotedAt)), db);
+    return { updated: saved, messages: systemMessages, requoted: Boolean(current.quotedAt) };
+  });
+
+  if (updated.clientId && updated.clientId !== actorId && updated.conversationId) {
+    await notificationService.notifySafely([updated.clientId], {
+      type: "FLIGHT_ORDER_STATUS",
+      title: requoted ? "Vol et prix mis à jour ✈️" : "Votre vol est confirmé ✈️",
+      body: `${updated.reference} · ${routeOf(updated)} · ${travelDatesText(updated)} · ${formatMoney(updated.totalAmount, updated.currency)}`,
+      link: paths.conversation(updated.conversationId),
+      groupKey: notificationService.conversationGroup(updated.conversationId),
+    });
+  }
+  realtime.publishMessages(messages, { ownerId: updated.agentId, clientId: updated.clientId });
+  if (updated.conversationId) {
+    // L'en-tête de la conversation se recharge (vol, prix) : on envoie la demande complète vue par le client
+    realtime.emitToConversation(updated.conversationId, "flight-order:updated", {
+      conversationId: updated.conversationId,
+      flightOrder: forCustomer(updated),
+    });
+  }
+  realtime.emitToAdmins("flight-orders:updated", {});
+  return withPurchaseUrl(updated);
 }
 
 /**
@@ -355,6 +621,9 @@ export async function updateStatus(
     if (!current) throw notFound("Demande de billet introuvable.");
     if (onlyFromStatuses && !onlyFromStatuses.includes(current.status)) {
       throw conflict(`Demande déjà « ${LABELS[current.status]} » : écrivez à l'équipe MoveColis dans la conversation.`);
+    }
+    if (nextStatus === "PAID" && current.awaitingQuote) {
+      throw conflict("Confirmez d'abord le vol et le prix de cette demande en direct (bouton « Confirmer le vol et le prix »).");
     }
     const allowed = FLIGHT_ORDER_TRANSITIONS[current.status];
     if (!allowed.includes(nextStatus)) {

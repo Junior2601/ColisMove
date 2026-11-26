@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowLeftRight, Search } from "lucide-react";
+import { ArrowLeftRight, ChevronRight, Search, Zap } from "lucide-react";
 import CityInput from "./CityInput";
 import FlightOfferCard from "./FlightOfferCard";
 import { ChipRow, ErrorState, FilterChip, Loader, Notice, btnPrimary, inputClass } from "../ui";
@@ -10,6 +10,7 @@ import { formatMoney, plural, timeAgo } from "../../lib/format";
 import {
   MAX_ROUND_TRIP_DAYS, addDays, flightRouteLabel, formatDay, isIsoDate, lastSearchDay, todayIso,
 } from "../../lib/flights";
+import { flightSearchCode, liveFlightsHref } from "../../lib/liveFlights";
 
 // Trajets proposés en un clic (Russie ↔ Afrique)
 const QUICK_ROUTES = [
@@ -46,6 +47,26 @@ function returnFor(date, returnDate, lastDay) {
   const latest = [addDays(date, MAX_ROUND_TRIP_DAYS), lastDay].sort()[0];
   if (returnDate && returnDate >= date && returnDate <= latest) return returnDate;
   return [addDays(date, DEFAULT_STAY_DAYS), latest].sort()[0];
+}
+
+/**
+ * Lien vers « Vols en direct » (recherche Aviasales en temps réel), sur le trajet et les dates cherchés.
+ * Lien classique (page rechargée) : le widget d'Aviasales lit la recherche dans l'adresse à son chargement.
+ */
+function LiveFlightsLink({ href }) {
+  return (
+    <a href={href}
+      className="flex items-center gap-3 border border-line rounded-2xl bg-white px-4 py-3 mb-4 lg:max-w-4xl lg:mx-auto hover:border-ink transition">
+      <span className="w-9 h-9 rounded-full bg-[#FDECEA] text-primary flex items-center justify-center shrink-0">
+        <Zap size={18} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-extrabold">Vols en direct</span>
+        <span className="block text-xs text-muted">Tous les billets du moment, toutes compagnies, aux prix en temps réel.</span>
+      </span>
+      <ChevronRight size={18} className="text-muted shrink-0" />
+    </a>
+  );
 }
 
 // Autres dates du même mois, avec leur prix le plus bas : un clic relance la recherche à ces dates
@@ -184,6 +205,11 @@ export default function FlightSearch({ config }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // Même trajet et mêmes dates dans la recherche en direct (1 adulte : le client ajuste les passagers là-bas)
+  const liveHref = hasQuery
+    ? liveFlightsHref(flightSearchCode({ origin: query.origin, destination: query.destination, date: query.date, returnDate: query.returnDate }))
+    : liveFlightsHref();
+
   const sorted = useMemo(() => {
     const items = (results.data?.items ?? []).filter((offer) => !query.bags || offer.checkedBags > 0);
     return [...items].sort(SORTS.find((s) => s.key === sort).compare);
@@ -308,6 +334,8 @@ export default function FlightSearch({ config }) {
         </div>
       </form>
 
+      <LiveFlightsLink href={liveHref} />
+
       {/* ===== Trajets en un clic ===== */}
       {!hasQuery && (
         <>
@@ -381,6 +409,10 @@ export default function FlightSearch({ config }) {
                   {query.direct ? ", acceptez les escales" : ""}
                   {query.bags ? ", retirez le filtre « Bagage en soute inclus »" : ""}.
                 </p>
+                <a href={liveHref} className={`${btnPrimary} mt-4`}>
+                  <Zap size={17} /> Voir les vols en direct
+                </a>
+                <p className="text-xs text-muted mt-2">Tous les billets du moment, sur toutes les compagnies.</p>
               </div>
               <NearbyDates nearby={results.data.nearby} currency={results.data.currency} title="Billets à d'autres dates"
                 onPick={pickNearby} />

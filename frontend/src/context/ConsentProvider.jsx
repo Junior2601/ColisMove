@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Cookie } from "lucide-react";
 import { Modal, btnOutline, btnPrimary, btnSm } from "../components/ui";
-import { COOKIE_CATEGORIES, OPTIONAL_CATEGORIES } from "../config/cookies";
+import { BANNER_CATEGORIES, COOKIE_CATEGORIES, OPTIONAL_CATEGORIES } from "../config/cookies";
 import { readConsent, writeConsent } from "../lib/consent";
+import { LIVE_CONSENT_KEY, clearLiveWidgetData, liveWidgetLoaded } from "../lib/liveFlights";
 import { applyConsent, clearOptionalCookies, trackPageView, trackersLoaded } from "../lib/trackers";
 import { ConsentContext } from "./ConsentContext";
 
-const allChoices = (value) => Object.fromEntries(OPTIONAL_CATEGORIES.map((c) => [c.key, value]));
+const choicesFor = (categories, value) => Object.fromEntries(categories.map((c) => [c.key, value]));
+const allChoices = (value) => choicesFor(OPTIONAL_CATEGORIES, value);
 
 /* ===== Interrupteur accessible ===== */
 function Switch({ checked, disabled, onChange, label }) {
@@ -44,7 +46,7 @@ function CookieBanner({ onAcceptAll, onRejectAll, onCustomize }) {
           <div className="text-[13.5px]">
             <b className="text-[14.5px]">Votre vie privée compte.</b> MoveColis utilise des cookies indispensables au
             fonctionnement du site et, avec votre accord, des cookies de{" "}
-            {OPTIONAL_CATEGORIES.map((c) => c.label.toLowerCase()).join(" et de ")}. Vous pouvez changer d'avis à tout
+            {BANNER_CATEGORIES.map((c) => c.label.toLowerCase()).join(" et de ")}. Vous pouvez changer d'avis à tout
             moment via « Gérer les cookies » en bas de page.{" "}
             <Link to="/cookies" className="font-bold underline">En savoir plus</Link>
           </div>
@@ -116,13 +118,15 @@ function CookiePreferences({ initial, onSave, onClose }) {
  *  - le bandeau n'apparaît que si un outil facultatif est configuré (sinon, rien à demander)
  *  - aucun outil n'est chargé avant l'accord ; un refus vaut autant qu'un accord
  *  - "Gérer les cookies" (pied de page) rouvre les préférences à tout moment
+ *  - catégorie « contextuelle » (recherche de vols en direct) : demandée sur sa page (grant), pas dans le bandeau
  */
 export function ConsentProvider({ children }) {
   const location = useLocation();
   const [consent, setConsent] = useState(readConsent);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
-  const needed = OPTIONAL_CATEGORIES.length > 0;
-  const decided = !needed || consent !== null;
+  const needed = BANNER_CATEGORIES.length > 0;
+  // Le bandeau a reçu une réponse : un accord donné sur une page (vols en direct) ne vaut pas réponse au bandeau
+  const decided = !needed || (consent !== null && BANNER_CATEGORIES.every((c) => c.key in consent.choices));
   const choicesKey = JSON.stringify(consent?.choices ?? {});
 
   // Charge les outils acceptés (au démarrage, puis à chaque nouveau choix)
@@ -138,11 +142,13 @@ export function ConsentProvider({ children }) {
   const save = useCallback(
     (choices) => {
       const previous = consent?.choices ?? {};
-      const withdrawn = Object.keys(previous).some((key) => previous[key] && !choices[key]);
+      const withdrawn = Object.keys(previous).filter((key) => previous[key] && !choices[key]);
       setConsent(writeConsent(choices));
       setPreferencesOpen(false);
+      const liveWithdrawn = withdrawn.includes(LIVE_CONSENT_KEY);
+      if (liveWithdrawn) clearLiveWidgetData();
       // Retrait d'un accord : on efface les cookies déposés et on recharge pour arrêter les scripts
-      if (withdrawn && trackersLoaded()) {
+      if (withdrawn.length && (trackersLoaded() || (liveWithdrawn && liveWidgetLoaded()))) {
         clearOptionalCookies();
         window.location.reload();
       }
@@ -156,17 +162,20 @@ export function ConsentProvider({ children }) {
       decided,
       needed,
       openPreferences: () => setPreferencesOpen(true),
+      // Accord donné sur la page qui en a besoin (ex. « Afficher la recherche en direct »)
+      grant: (key) => save({ ...(consent?.choices ?? {}), [key]: true }),
     }),
-    [consent, decided, needed]
+    [consent, decided, needed, save]
   );
 
   return (
     <ConsentContext.Provider value={value}>
       {children}
-      {needed && !consent && !preferencesOpen && (
+      {/* Le bandeau ne répond que pour ses catégories : un accord donné sur une page reste tel quel */}
+      {needed && !decided && !preferencesOpen && (
         <CookieBanner
-          onAcceptAll={() => save(allChoices(true))}
-          onRejectAll={() => save(allChoices(false))}
+          onAcceptAll={() => save({ ...(consent?.choices ?? {}), ...choicesFor(BANNER_CATEGORIES, true) })}
+          onRejectAll={() => save({ ...(consent?.choices ?? {}), ...choicesFor(BANNER_CATEGORIES, false) })}
           onCustomize={() => setPreferencesOpen(true)}
         />
       )}

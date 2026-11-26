@@ -86,6 +86,7 @@ export const api = {
   get: (path, query, options) => request("GET", path, { query, ...options }),
   post: (path, body, options) => request("POST", path, { body: body ?? {}, ...options }),
   patch: (path, body, options) => request("PATCH", path, { body: body ?? {}, ...options }),
+  put: (path, body, options) => request("PUT", path, { body: body ?? {}, ...options }),
   delete: (path, options) => request("DELETE", path, options),
   // Fichier envoyé tel quel dans le corps (photo), informations en plus dans l'URL
   upload: (path, file, query, options) => request("POST", path, { file, query, ...options }),

@@ -9,6 +9,8 @@ import RequireRole from "./components/RequireRole";
 import Home from "./pages/visiteur/Home";
 import TripDetail from "./pages/visiteur/TripDetail";
 import FlightOffer from "./pages/visiteur/FlightOffer";
+import LiveFlights from "./pages/visiteur/LiveFlights";
+import LiveFlightOrder from "./pages/visiteur/LiveFlightOrder";
 import Tracking from "./pages/visiteur/Tracking";
 import { Login, Register } from "./pages/visiteur/Auth";
 import ForgotPassword from "./pages/visiteur/ForgotPassword";
@@ -56,6 +58,8 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/voyage/:id" element={<TripDetail />} />
               <Route path="/billet/:id" element={<FlightOffer />} />
+              <Route path="/vols-en-direct" element={<LiveFlights />} />
+              <Route path="/vols-en-direct/payer" element={<LiveFlightOrder />} />
               <Route path="/suivi" element={<Tracking />} />
               <Route path="/connexion" element={<Login />} />
               <Route path="/inscription" element={<Register />} />

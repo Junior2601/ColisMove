@@ -1,6 +1,17 @@
 import { pool } from "../config/db.js";
+import { FLIGHT_LIVE_PATH } from "../config/constants.js";
 import { likePattern } from "../utils/sql.js";
 import { toLocalIso } from "../utils/date.js";
+
+/**
+ * Demande « vol choisi en direct » : lien vers la recherche du client sur la page « Vols en direct »
+ * (et le billet qu'il a partagé). Codes vérifiés à la demande, chemin interne au site.
+ */
+export const liveSearchUrl = (live) =>
+  live?.search
+    ? `${FLIGHT_LIVE_PATH}?flightSearch=${encodeURIComponent(live.search)}` +
+      (live.ticketId ? `&ticketId=${encodeURIComponent(live.ticketId)}` : "")
+    : null;
 
 // Demande + id de conversation + messages non lus de l'admin qui la traite
 const SELECT_COLUMNS = `
@@ -111,6 +122,11 @@ export function toFlightOrder(row) {
     receiptSentAt: row.receipt_sent_at,
     link: row.link, // chemin aviasales.ru : l'URL complète est construite par le service
     gate: row.gate, // agence qui vendait ce prix sur Aviasales
+    // Vol choisi en direct par le client (null : billet des résultats MoveColis) ; tant que l'équipe n'a pas
+    // confirmé le vol et le prix (awaitingQuote), l'heure, la compagnie et le prix sont inconnus
+    liveRequest: row.live_request ? { ...row.live_request, url: liveSearchUrl(row.live_request) } : null,
+    quotedAt: row.quoted_at ?? null,
+    awaitingQuote: Boolean(row.live_request) && !row.quoted_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.conversation_id !== undefined && { conversationId: row.conversation_id }),
@@ -128,11 +144,12 @@ export async function create(order, db = pool) {
        adults, children, infants, adult_price, child_price, infant_price, options, total_amount, currency,
        client_email, bags_included, bags_kept, bag_refund, bag_discount, freed_kilos, arrival_at, stops, passengers,
        return_at, return_arrival_at, return_origin_airport, return_destination_airport, return_transfers, return_stops,
-       return_duration_minutes, return_bags_included, return_bags_kept, return_bag_discount, return_freed_kilos)
+       return_duration_minutes, return_bags_included, return_bags_kept, return_bag_discount, return_freed_kilos,
+       live_request)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
              $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31::jsonb, $32, $33,
              $34, $35, $36, $37, $38, $39, $40, $41::jsonb, $42::jsonb,
-             $43, $44, $45, $46, $47, $48::jsonb, $49, $50, $51, $52, $53)
+             $43, $44, $45, $46, $47, $48::jsonb, $49, $50, $51, $52, $53, $54::jsonb)
      ON CONFLICT (reference) DO NOTHING
      RETURNING id`,
     [
@@ -152,9 +169,43 @@ export async function create(order, db = pool) {
       JSON.stringify(order.returnStops ?? []), order.returnDurationMinutes ?? null,
       order.returnBags?.included ?? 0, order.returnBags?.kept ?? 0, order.returnBags?.discount ?? 0,
       order.returnBags?.freedKilos ?? 0,
+      // Demande en direct : vol décrit par le client (null : billet des résultats MoveColis)
+      order.liveRequest ? JSON.stringify(order.liveRequest) : null,
     ]
   );
   return rows[0]?.id ?? null;
+}
+
+/**
+ * Demande en direct : vol et prix confirmés par l'équipe (compagnie, numéro, heures locales, escales, bagages, prix).
+ * Les valises sont toutes gardées (pas de retrait sur une demande en direct). Aller simple : champs du retour ignorés.
+ */
+export async function saveQuote(id, quote, db = pool) {
+  const roundTrip = Boolean(quote.returnDepartureAt);
+  await db.query(
+    `UPDATE flight_orders SET
+       airline = $2, airline_name = $3, flight_number = $4,
+       origin_airport = $5, destination_airport = $6, departure_at = $7, arrival_at = $8,
+       transfers = $9, stops = $10::jsonb, duration_minutes = NULL,
+       checked_bags = $11, cabin_kg = $12, checked_bag_kg = $13, bags_included = $14, bags_kept = $14,
+       return_at = $15, return_arrival_at = $16, return_origin_airport = $17, return_destination_airport = $18,
+       return_transfers = $19, return_stops = $20::jsonb, return_duration_minutes = NULL,
+       return_bags_included = $21, return_bags_kept = $21,
+       adult_price = $22, child_price = $23, infant_price = $24, total_amount = $25,
+       quoted_at = NOW()
+     WHERE id = $1`,
+    [
+      id, quote.airline, quote.airlineName, quote.flightNumber,
+      quote.originAirport ?? null, quote.destinationAirport ?? null, quote.departureAt, quote.arrivalAt ?? null,
+      quote.stops.length, JSON.stringify(quote.stops),
+      quote.checkedBags, quote.cabinKg, quote.checkedBagKg, quote.bagsIncluded,
+      roundTrip ? quote.returnDepartureAt : null, roundTrip ? (quote.returnArrivalAt ?? null) : null,
+      roundTrip ? (quote.returnOriginAirport ?? null) : null, roundTrip ? (quote.returnDestinationAirport ?? null) : null,
+      roundTrip ? quote.returnStops.length : null, JSON.stringify(roundTrip ? quote.returnStops : []),
+      roundTrip ? quote.bagsIncluded : 0,
+      quote.adultPrice, quote.childPrice, quote.infantPrice, quote.totalAmount,
+    ]
+  );
 }
 
 export async function findById(id, db = pool) {

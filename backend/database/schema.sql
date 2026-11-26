@@ -619,9 +619,9 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   destination_airport  VARCHAR(3),
   departure_at         TIMESTAMP    NOT NULL,
   arrival_at           TIMESTAMP,                      -- heure locale d'arrivée (NULL = non précisée)
-  airline              VARCHAR(3)   NOT NULL,
+  airline              VARCHAR(3),                     -- NULL : demande en direct pas encore confirmée par l'équipe
   airline_name         VARCHAR(80),
-  flight_number        VARCHAR(10)  NOT NULL,
+  flight_number        VARCHAR(10),                    -- NULL : idem
   transfers            SMALLINT     NOT NULL DEFAULT 0,
   stops                JSONB        NOT NULL DEFAULT '[]', -- [{ code, name, airports }] villes d'escale
   duration_minutes     INT,
@@ -667,6 +667,10 @@ CREATE TABLE IF NOT EXISTS flight_orders (
   payment_info_sent_at TIMESTAMPTZ,                    -- dernier envoi des numéros de paiement au client
   receipt_email        VARCHAR(160),                   -- dernier envoi du billet par e-mail
   receipt_sent_at      TIMESTAMPTZ,
+  -- Demande « vol choisi en direct » (page « Vols en direct ») : vol décrit par le client
+  -- { airline, departureTime, returnDepartureTime, seenPrice, search, ticketId } (NULL : billet des résultats MoveColis)
+  live_request         JSONB,
+  quoted_at            TIMESTAMPTZ,                    -- vol et prix confirmés par l'équipe (demande en direct)
   created_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 

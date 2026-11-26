@@ -1,12 +1,14 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Camera, Check, CreditCard, Download, ExternalLink, Mail, MapPin, SendHorizontal, X,
+  ArrowLeft, Camera, Check, CreditCard, Download, ExternalLink, Mail, MapPin, PlaneTakeoff, SendHorizontal, X,
 } from "lucide-react";
 import Layout from "../components/Layout";
 import ReservationStatusModal from "../components/ReservationStatusModal";
 import ReservationPaymentButtons, { PaidBadge } from "../components/ReservationPayment";
+import QuoteFlightModal from "../components/admin/QuoteFlightModal";
 import SendTicketModal from "../components/admin/SendTicketModal";
+import LiveRequestLine from "../components/flights/LiveRequestLine";
 import { PassengerList } from "../components/flights/Passengers";
 import { Badge, ErrorState, Loader, Notice, Toast, btnDanger, btnOutline, btnPrimary, btnSm } from "../components/ui";
 import { adminApi } from "../api/admin";
@@ -25,7 +27,7 @@ import {
   NEXT_RESERVATION_STEP, RESERVATION_STATUS,
 } from "../lib/status";
 import {
-  flightNameLabel, flightTimesLabel, orderBaggageLabel, orderLegs, passengersLabel, removedBagsLabel, flightRouteLabel, stopsLabel,
+  flightNameLabel, orderBaggageLabel, orderLegs, orderTimesLabel, passengersLabel, removedBagsLabel, flightRouteLabel, stopsLabel,
 } from "../lib/flights";
 
 // La conversation porte sur une réservation de kilos ou sur une demande de billet d'avion
@@ -147,7 +149,7 @@ function ConversationHeader({ detail, onAction, onPickImage, onPaymentUpdated, o
  * Paiement : l'équipe envoie les numéros de paiement (réglages), le client envoie la capture de son paiement,
  * puis l'équipe clique sur « Paiement reçu ».
  */
-function FlightOrderHeader({ detail, onAction, onSendPaymentInfo, sendingPaymentInfo, onPickImage }) {
+function FlightOrderHeader({ detail, onAction, onQuote, onSendPaymentInfo, sendingPaymentInfo, onPickImage }) {
   const { flightOrder: order, viewerSide } = detail;
   const { flight } = order;
   const roundTrip = Boolean(order.returnFlight);
@@ -159,6 +161,9 @@ function FlightOrderHeader({ detail, onAction, onSendPaymentInfo, sendingPayment
     ? CANCELLABLE_FLIGHT_ORDER_STATUSES.includes(order.status)
     : order.status === "PENDING"; // le client annule seulement avant le paiement
   const awaitingPayment = order.status === "PENDING";
+  // Vol choisi en direct : l'équipe confirme le vol et le prix avant le paiement
+  const awaitingQuote = order.awaitingQuote;
+  const canQuote = canManage && Boolean(order.liveRequest) && order.status === "PENDING";
 
   return (
     <div className="border border-line-light rounded-2xl bg-white px-4 py-3.5 flex flex-col gap-1.5">
@@ -166,20 +171,28 @@ function FlightOrderHeader({ detail, onAction, onSendPaymentInfo, sendingPayment
         <div className="min-w-0">
           <div className="font-extrabold text-[15.5px]">
             ✈️ {flightRouteLabel(flight.origin.name, flight.destination.name, roundTrip)}
-            {!roundTrip && ` · ${flightTimesLabel(flight)}`}
+            {!roundTrip && ` · ${orderTimesLabel(order, flight)}`}
           </div>
           {/* Aller-retour : une ligne par vol */}
           {roundTrip &&
             legs.map((leg) => (
               <div key={leg.leg} className="text-[13.5px] font-bold">
-                <span className="text-primary">{leg.label}</span> · {flightTimesLabel(leg.flight)}
+                <span className="text-primary">{leg.label}</span> · {orderTimesLabel(order, leg.flight)}
               </div>
             ))}
           <div className="text-[13px] text-muted">
             <span className="font-mono font-bold text-ink">{order.reference}</span> · {passengersLabel(order)} ·{" "}
-            <b className="text-ink">{formatMoney(order.totalAmount, order.currency)}</b>
+            <b className="text-ink">{awaitingQuote ? "prix à confirmer" : formatMoney(order.totalAmount, order.currency)}</b>
           </div>
-          {legs.map((leg) => (
+          <LiveRequestLine order={order} />
+          {awaitingQuote && (
+            <div className="text-[13px] text-ink font-semibold">
+              {canManage
+                ? "⏳ Vol et prix à confirmer : retrouvez le vol, puis « Confirmer le vol et le prix »."
+                : "⏳ L'équipe MoveColis retrouve votre vol et vous confirme ici son prix."}
+            </div>
+          )}
+          {!awaitingQuote && legs.map((leg) => (
             <div key={leg.leg} className="text-[13px] text-muted">
               {leg.label && `${leg.label} : `}
               {leg.leg === "OUTBOUND" && `${flightNameLabel(flight)} · `}
@@ -232,7 +245,12 @@ function FlightOrderHeader({ detail, onAction, onSendPaymentInfo, sendingPayment
 
       <div className="flex gap-2 flex-wrap mt-1.5">
         {/* Étape avant « Paiement reçu » : numéros de paiement envoyés dans la conversation */}
-        {canManage && awaitingPayment && (
+        {canQuote && (
+          <button type="button" onClick={onQuote} className={`${awaitingQuote ? btnPrimary : btnOutline} ${btnSm}`}>
+            <PlaneTakeoff size={15} /> {awaitingQuote ? "Confirmer le vol et le prix" : "Modifier le vol et le prix"}
+          </button>
+        )}
+        {canManage && awaitingPayment && !awaitingQuote && (
           <button type="button" onClick={onSendPaymentInfo} disabled={sendingPaymentInfo} className={`${btnOutline} ${btnSm}`}>
             <CreditCard size={15} />
             {sendingPaymentInfo
@@ -245,7 +263,7 @@ function FlightOrderHeader({ detail, onAction, onSendPaymentInfo, sendingPayment
             <Camera size={15} /> Envoyer la capture du paiement
           </button>
         )}
-        {canManage && next && (
+        {canManage && next && !awaitingQuote && (
           <button type="button" onClick={() => onAction(next.status)} className={`${btnPrimary} ${btnSm}`}>
             <Check size={15} /> {next.action}
           </button>
@@ -258,7 +276,8 @@ function FlightOrderHeader({ detail, onAction, onSendPaymentInfo, sendingPayment
         {/* Lien d'achat sur aviasales.ru : visible uniquement par l'équipe */}
         {canManage && order.purchaseUrl && CANCELLABLE_FLIGHT_ORDER_STATUSES.includes(order.status) && (
           <a href={order.purchaseUrl} target="_blank" rel="noopener noreferrer" className={`${btnOutline} ${btnSm}`}>
-            <ExternalLink size={15} /> Acheter sur Aviasales{order.gate ? ` (${order.gate})` : ""}
+            <ExternalLink size={15} />{" "}
+            {order.liveRequest ? "Rechercher sur Aviasales" : `Acheter sur Aviasales${order.gate ? ` (${order.gate})` : ""}`}
           </a>
         )}
         {canCancel && (
@@ -342,7 +361,12 @@ function MessageBubble({ message, mine, showName, name, seen, onRetry, onOpenIma
   if (message.senderType === "SYSTEM") {
     return (
       <div className="flex justify-center my-1">
-        <div className="bg-surface text-muted text-xs font-semibold rounded-full px-3 py-1.5 text-center max-w-[90%]">
+        {/* Récapitulatif sur plusieurs lignes (vol confirmé par l'équipe) : lignes gardées, texte à gauche */}
+        <div
+          className={`bg-surface text-muted text-xs font-semibold px-3 py-1.5 max-w-[90%] whitespace-pre-line wrap-break-word ${
+            message.body.includes("\n") ? "rounded-2xl text-left border border-line-light" : "rounded-full text-center"
+          }`}
+        >
           {message.body}
         </div>
       </div>
@@ -452,6 +476,7 @@ export default function Conversation() {
   const [flash, showFlash] = useFlash();
   const [viewerUrl, setViewerUrl] = useState(null); // photo agrandie
   const [sendingPaymentInfo, setSendingPaymentInfo] = useState(false);
+  const [quoting, setQuoting] = useState(false); // équipe : confirmation du vol et du prix (vol choisi en direct)
   const fileInputRef = useRef(null);
   const captionRef = useRef(undefined); // texte de la photo choisie (« 📷 Capture du paiement »…)
 
@@ -587,7 +612,7 @@ export default function Conversation() {
         ) : (
           <>
             {isFlight ? (
-              <FlightOrderHeader detail={detail} onAction={setPendingStatus} onSendPaymentInfo={sendPaymentInfo}
+              <FlightOrderHeader detail={detail} onAction={setPendingStatus} onQuote={() => setQuoting(true)} onSendPaymentInfo={sendPaymentInfo}
                 sendingPaymentInfo={sendingPaymentInfo} onPickImage={pickImage} />
             ) : (
               <ConversationHeader detail={detail} onAction={setPendingStatus} onPickImage={pickImage}
@@ -663,6 +688,17 @@ export default function Conversation() {
         )}
       </div>
 
+      {quoting && isFlight && (
+        <QuoteFlightModal
+          order={detail.flightOrder}
+          onClose={() => setQuoting(false)}
+          onSaved={(updated) => {
+            chat.patchFlightOrder(updated);
+            setQuoting(false);
+            stickToBottom.current = true; // le récapitulatif arrive en bas de la conversation
+          }}
+        />
+      )}
       {/* Billet émis (ou nouvel envoi) : l'équipe envoie le billet et le reçu par e-mail */}
       {pendingStatus === "ISSUED" && isFlight && (
         <SendTicketModal

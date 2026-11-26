@@ -25,6 +25,11 @@ export async function createOrder(req, res) {
   res.status(201).json(await flightOrderService.createOrder(req.valid.body, { user: req.user }));
 }
 
+// Vol choisi dans la recherche en direct : demande sans prix, confirmée ensuite par l'équipe
+export async function createLiveOrder(req, res) {
+  res.status(201).json(await flightOrderService.createLiveOrder(req.valid.body, { user: req.user }));
+}
+
 /* ---------- Administration ---------- */
 
 export async function getSettings(req, res) {
@@ -65,6 +70,10 @@ export async function listOrders(req, res) {
 
 export async function sendPaymentInfo(req, res) {
   res.json(await conversationService.sendFlightPaymentInfo(req.valid.params.id, req.user));
+}
+
+export async function quoteLiveOrder(req, res) {
+  res.json(await flightOrderService.quoteLiveOrder(req.valid.params.id, req.valid.body, { actorId: req.user.id }));
 }
 
 export async function sendTicket(req, res) {

@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Info, MessageCircle, Minus, Plus } from "lucide-react";
+import { ArrowLeft, Info, MessageCircle } from "lucide-react";
 import Layout from "../../components/Layout";
 import { AirlineLogo, FlightLine, LegTitle } from "../../components/flights/FlightOfferCard";
 import { PassengerFields } from "../../components/flights/Passengers";
+import Stepper from "../../components/flights/Stepper";
 import PhoneField from "../../components/PhoneField";
 import { ErrorState, Field, Loader, Notice, btnPrimary, inputClass } from "../../components/ui";
 import { flightsApi } from "../../api/flights";
@@ -24,29 +25,6 @@ function Row({ k, v }) {
     <div className="flex justify-between text-sm py-2.5 border-b border-line-light last:border-0 gap-4">
       <span className="text-muted shrink-0">{k}</span>
       <span className="font-bold text-right">{v}</span>
-    </div>
-  );
-}
-
-// Compteur − n + (passagers, options à plusieurs exemplaires)
-function Stepper({ label, hint, value, min, max, onChange }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2">
-      <div className="min-w-0">
-        <div className="text-sm font-bold">{label}</div>
-        {hint && <div className="text-xs text-muted">{hint}</div>}
-      </div>
-      <div className="flex items-center gap-2.5 shrink-0">
-        <button type="button" aria-label={`${label} : un de moins`} disabled={value <= min} onClick={() => onChange(value - 1)}
-          className="w-8 h-8 rounded-full border border-line bg-white flex items-center justify-center hover:border-ink transition disabled:opacity-30">
-          <Minus size={15} />
-        </button>
-        <span className="w-5 text-center font-extrabold" aria-live="polite">{value}</span>
-        <button type="button" aria-label={`${label} : un de plus`} disabled={value >= max} onClick={() => onChange(value + 1)}
-          className="w-8 h-8 rounded-full border border-line bg-white flex items-center justify-center hover:border-ink transition disabled:opacity-30">
-          <Plus size={15} />
-        </button>
-      </div>
     </div>
   );
 }

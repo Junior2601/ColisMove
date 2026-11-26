@@ -52,7 +52,25 @@ export const COOKIE_CATEGORIES = [
       { name: "_fbp", provider: "Meta (Facebook, Instagram)", type: "Cookie", purpose: "Mesurer les visites issues de nos publicités.", duration: "3 mois" },
     ],
   },
+  {
+    key: "liveFlights",
+    label: "Recherche de vols en direct",
+    required: false,
+    enabled: true,
+    // Demandé sur la page concernée (« Vols en direct »), pas dans le bandeau : rien n'est chargé ailleurs
+    contextual: true,
+    description:
+      "La page « Vols en direct » affiche la recherche de billets d'Aviasales (via Travelpayouts). Elle n'est chargée que si vous l'affichez : Aviasales dépose alors ses propres cookies pour mémoriser la langue et la devise, et mesurer l'utilisation de sa recherche.",
+    items: [
+      { name: "tpwl_locale, tpwl_currency", provider: "Aviasales (Travelpayouts)", type: "Cookie", purpose: "Mémoriser la langue et la devise de la recherche.", duration: "12 mois" },
+      { name: "_sp_id.*, _sp_ses.*", provider: "Aviasales (Travelpayouts)", type: "Cookie", purpose: "Mesurer l'utilisation de la recherche (visites, recherches).", duration: "13 mois (_sp_id), 30 minutes (_sp_ses)" },
+      { name: "nuid", provider: "Aviasales (avsplow.com)", type: "Cookie tiers", purpose: "Mesurer l'utilisation de la recherche d'un site à l'autre.", duration: "12 mois" },
+      { name: "snowplowOutQueue_sp, __wlcc", provider: "Aviasales (Travelpayouts)", type: "Stockage local", purpose: "Envoyer les mesures d'utilisation et garder les réglages de la recherche.", duration: "Jusqu'à l'effacement des données du navigateur" },
+    ],
+  },
 ];
 
 // Catégories soumises à consentement réellement utilisées (outil configuré)
 export const OPTIONAL_CATEGORIES = COOKIE_CATEGORIES.filter((c) => !c.required && c.enabled);
+// Catégories demandées dans le bandeau : les autres le sont sur la page qui s'en sert (ex. « Vols en direct »)
+export const BANNER_CATEGORIES = OPTIONAL_CATEGORIES.filter((c) => !c.contextual);

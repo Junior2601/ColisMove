@@ -9,6 +9,7 @@ import {
   freedKilosQuery,
   freedKilosLegQuery,
   listFlightOrdersQuery,
+  quoteLiveFlightOrderBody,
   sendFlightTicketBody,
   updateFlightOfferBody,
   updateFlightOptionBody,
@@ -84,6 +85,12 @@ router.patch(
   "/flight-orders/:id/status",
   validate({ params: idParam, body: updateFlightOrderStatusBody }),
   flight.updateOrderStatus
+);
+// Vol choisi en direct par le client : l'équipe confirme le vol retrouvé et son prix (avant le numéro de paiement)
+router.put(
+  "/flight-orders/:id/quote",
+  validate({ params: idParam, body: quoteLiveFlightOrderBody }),
+  flight.quoteLiveOrder
 );
 // Numéros de paiement (réglages) envoyés au client dans la conversation, avant « Paiement reçu »
 router.post("/flight-orders/:id/payment-info", validate({ params: idParam }), flight.sendPaymentInfo);

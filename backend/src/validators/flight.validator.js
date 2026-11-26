@@ -72,8 +72,8 @@ const passenger = z.object({
     .pipe(z.string().regex(/^[A-Z0-9]{5,20}$/, "Numéro de passeport : 5 à 20 lettres ou chiffres.")),
 });
 
-export const createFlightOrderBody = z.object({
-  offerId: z.coerce.number().int().positive().max(2147483647),
+// Coordonnées de la personne qui fait la demande, et passagers (billet de nos résultats ou vol choisi en direct)
+const orderContact = {
   clientName: z.string().trim().min(2, "Indiquez votre nom complet.").max(160),
   clientPhone: phoneSchema,
   clientEmail: email, // reçoit le billet une fois émis
@@ -82,6 +82,40 @@ export const createFlightOrderBody = z.object({
   children: intBetween(0, FLIGHT_MAX_PASSENGERS - 1).default(0),
   infants: intBetween(0, FLIGHT_MAX_PASSENGERS).default(0),
   passengers: z.array(passenger).min(1, "Renseignez chaque passager.").max(FLIGHT_MAX_PASSENGERS),
+};
+
+// Heure locale "21:30"
+const timeField = z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Heure invalide (ex. 21:30).");
+
+/**
+ * Vol choisi dans la recherche en direct (page « Vols en direct ») : trajet, jours, ce que le client a vu
+ * (compagnie, heures, prix) et, s'il l'a copié avec « Partager », le lien du billet.
+ */
+export const createLiveFlightOrderBody = z
+  .object({
+    origin: cityCode,
+    destination: cityCode,
+    date: dayField,
+    returnDate: z.preprocess(emptyToNull, dayField.nullable()).optional(), // aller-retour
+    airline: z.string().trim().min(2, "Indiquez la compagnie du vol choisi.").max(80),
+    departureTime: nullableField(timeField),
+    returnDepartureTime: nullableField(timeField),
+    seenPrice: nullableField(z.string().trim().max(40)), // tel qu'affiché, ex. "479 277 Fr"
+    shareLink: nullableField(z.string().trim().max(500)), // lien copié avec « Partager »
+    ...orderContact,
+  })
+  .refine((data) => data.destination !== data.origin, {
+    message: "Choisissez une ville d'arrivée différente du départ.",
+    path: ["destination"],
+  })
+  .refine((data) => !data.returnDate || data.returnDate >= data.date, {
+    message: "La date de retour ne peut pas être avant la date de départ.",
+    path: ["returnDate"],
+  });
+
+export const createFlightOrderBody = z.object({
+  offerId: z.coerce.number().int().positive().max(2147483647),
+  ...orderContact,
   options: z
     .array(z.object({ id: z.coerce.number().int().positive(), quantity: intBetween(0, 20) }))
     .max(30)
@@ -158,6 +192,46 @@ export const listFlightOrdersQuery = z.object({
   status: statusList,
   q: searchQuery,
   ...pagination,
+});
+
+// Date et heure locales du vol "2026-12-11T21:30" (champ datetime-local)
+const localDateTime = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/, "Date et heure invalides.")
+  .refine((value) => {
+    const date = new Date(`${value}:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 16) === value;
+  }, "Date et heure invalides.");
+const airportCode = nullableField(
+  z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "Code de l'aéroport sur 3 lettres (ex. DME).")
+);
+// Villes d'escale : "Addis Abeba", "Istanbul" (le nombre d'escales en découle)
+const stopCities = z.array(z.string().trim().min(2, "Ville d'escale trop courte.").max(60)).max(4).default([]);
+
+/** Demande en direct : vol retrouvé par l'équipe et prix à payer (avant l'envoi du numéro de paiement) */
+export const quoteLiveFlightOrderBody = z.object({
+  airline: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{2}$/, "Code de la compagnie sur 2 caractères (ex. ET)."),
+  flightNumber: z.string().trim().toUpperCase().regex(/^\d{1,4}[A-Z]?$/, "Numéro du vol, sans le code de la compagnie (ex. 761)."),
+  departureAt: localDateTime,
+  arrivalAt: nullableField(localDateTime),
+  originAirport: airportCode,
+  destinationAirport: airportCode,
+  stops: stopCities,
+  // Vol retour (aller-retour uniquement)
+  returnDepartureAt: nullableField(localDateTime),
+  returnArrivalAt: nullableField(localDateTime),
+  returnOriginAirport: airportCode,
+  returnDestinationAirport: airportCode,
+  returnStops: stopCities,
+  // Bagages : valises en soute par passager (hors bébés), poids d'une valise, bagage cabine (vide : inclus)
+  checkedBags: intBetween(0, 3),
+  checkedBagKg: intBetween(1, 50).default(23),
+  cabinKg: nullableNumber(intBetween(0, 30)),
+  // Prix par passager, dans la devise des billets
+  adultPrice: z.coerce.number().positive("Indiquez le prix par adulte.").max(1_000_000_000),
+  childPrice: amount.default(0),
+  infantPrice: amount.default(0),
 });
 
 export const updateFlightOrderStatusBody = z.object({

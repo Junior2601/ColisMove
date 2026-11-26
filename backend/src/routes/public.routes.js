@@ -6,7 +6,9 @@ import { validate } from "../middlewares/validate.js";
 import { flightSearchLimiter, reservationLimiter, trackingLimiter } from "../middlewares/rateLimit.js";
 import { idParam } from "../validators/common.js";
 import { createReservationBody, listPublicTripsQuery, trackingParam } from "../validators/public.validator.js";
-import { createFlightOrderBody, placesQuery, searchFlightsQuery } from "../validators/flight.validator.js";
+import {
+  createFlightOrderBody, createLiveFlightOrderBody, placesQuery, searchFlightsQuery,
+} from "../validators/flight.validator.js";
 
 const router = Router();
 
@@ -34,5 +36,12 @@ router.get("/flights/search", flightSearchLimiter, validate({ query: searchFligh
 router.get("/flights/offers/:id", flightSearchLimiter, validate({ params: idParam }), flight.getOffer);
 // Demande d'achat (visiteur ou client connecté) → ouvre la conversation avec l'équipe MoveColis
 router.post("/flight-orders", reservationLimiter, validate({ body: createFlightOrderBody }), flight.createOrder);
+// Vol choisi dans la recherche en direct (page « Vols en direct ») : l'équipe confirme le vol et le prix ensuite
+router.post(
+  "/flight-orders/live",
+  reservationLimiter,
+  validate({ body: createLiveFlightOrderBody }),
+  flight.createLiveOrder
+);
 
 export default router;

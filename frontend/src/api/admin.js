@@ -42,6 +42,8 @@ export const adminApi = {
   updateFlightOrderStatus: (id, status, note) => api.patch(`/admin/flight-orders/${id}/status`, { status, note }),
   // Numéros de paiement (réglages) envoyés au client dans la conversation → demande mise à jour (paymentInfoSentAt)
   sendFlightPaymentInfo: (id) => api.post(`/admin/flight-orders/${id}/payment-info`),
+  // Vol choisi en direct : vol retrouvé et prix confirmés par l'équipe → demande mise à jour
+  quoteFlightOrder: (id, data) => api.put(`/admin/flight-orders/${id}/quote`, data),
   // Billet + reçu par e-mail (« Payée » → « Billet émis », ou nouvel envoi) : { email, note, attachments: [{ filename, contentType, data }] }
   sendFlightTicket: (id, data) => api.post(`/admin/flight-orders/${id}/ticket`, data),
   // Kilos libérés par les valises que les clients ont retirées de leur billet

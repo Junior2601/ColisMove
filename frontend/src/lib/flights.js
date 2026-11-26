@@ -260,3 +260,8 @@ export const flightNameLabel = (flight) =>
   [flight.airlineName, flight.flightNumber ? `${flight.airline} ${flight.flightNumber}` : !flight.airlineName && flight.airline]
     .filter(Boolean)
     .join(" ");
+
+/* ---------- Vol choisi en direct ---------- */
+
+// Demande en direct pas encore confirmée par l'équipe : seule la date est connue ("mar. 15 déc."), sinon date et heures
+export const orderTimesLabel = (order, flight) => (order.awaitingQuote ? formatTripDate(flight.departureAt) : flightTimesLabel(flight));

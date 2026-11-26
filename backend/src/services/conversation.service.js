@@ -192,6 +192,10 @@ export async function sendPaymentInfo(conversationId, actor) {
   const subject = isFlight ? detail.flightOrder : detail.reservation;
   if (subject.status === "CANCELLED") throw conflict(isFlight ? "Cette demande est annulée." : "Cette réservation est annulée.");
   if (isFlight ? subject.status !== "PENDING" : subject.paidAt) throw conflict("Le paiement est déjà enregistré.");
+  // Vol choisi en direct : le montant n'est connu qu'une fois le vol et le prix confirmés par l'équipe
+  if (isFlight && subject.awaitingQuote) {
+    throw conflict("Confirmez d'abord le vol et le prix (bouton « Confirmer le vol et le prix »), puis envoyez le numéro de paiement.");
+  }
 
   const numbers = await paymentNumbersFor(detail, side);
   const text = isFlight

@@ -100,6 +100,12 @@ export default function Confidentialite() {
               publicité listés dans la <A to="/cookies">Politique de cookies</A>.
             </li>
             <li>
+              <B>Aviasales (via Travelpayouts)</B>, si vous affichez la recherche de la page « Vols en direct » : elle reçoit
+              les critères de votre recherche (villes, dates, nombre de passagers) et les informations techniques de votre
+              navigateur. Un achat par carte depuis cette recherche se fait directement auprès de l&apos;agence choisie, selon
+              ses propres conditions.
+            </li>
+            <li>
               <B>Les autorités</B>, uniquement sur demande légale.
             </li>
           </Ul>

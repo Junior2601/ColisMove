@@ -1,3 +1,7 @@
+/* Page « Vols en direct » : le widget d'Aviasales ajoute à la page une remise à zéro des styles (h1, nav, body…)
+   dans une couche CSS « isolation ». Déclarée ici en premier, cette couche passe après celles du site (Tailwind)
+   au lieu de les écraser ; ses propres styles, hors couche, restent prioritaires sur ses éléments. */
+@layer isolation;
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
 @import "tailwindcss";
 
@@ -20,4 +24,5 @@
 
 body {
   @apply font-sans text-ink bg-white antialiased;
+  line-height: inherit; /* 1.5 de html, même si un style tiers en déclare un autre sur body */
 }

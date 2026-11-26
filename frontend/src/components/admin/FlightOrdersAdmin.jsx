@@ -1,8 +1,10 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, CreditCard, ExternalLink, Mail, MessageCircle, Search, X } from "lucide-react";
+import { Check, CreditCard, ExternalLink, Mail, MessageCircle, PlaneTakeoff, Search, X } from "lucide-react";
 import ReservationStatusModal from "../ReservationStatusModal";
+import QuoteFlightModal from "./QuoteFlightModal";
 import SendTicketModal from "./SendTicketModal";
+import LiveRequestLine from "../flights/LiveRequestLine";
 import { PassengerList } from "../flights/Passengers";
 import { Badge, ChipRow, ErrorState, FilterChip, LoadMore, Loader, Toast, btnDanger, btnOutline, btnPrimary, btnSm } from "../ui";
 import { adminApi } from "../../api/admin";
@@ -13,7 +15,7 @@ import { useFlash } from "../../hooks/useFlash";
 import { useSocketEvent } from "../../hooks/useSocketEvent";
 import { formatDateTime, formatKg, formatMoney, formatPhone, timeAgo } from "../../lib/format";
 import {
-  flightNameLabel, flightTimesLabel, orderBaggageLabel, orderLegs, passengersLabel, removedBagsLabel, flightRouteLabel, stopsLabel,
+  flightNameLabel, orderBaggageLabel, orderLegs, orderTimesLabel, passengersLabel, removedBagsLabel, flightRouteLabel, stopsLabel,
 } from "../../lib/flights";
 import { paths } from "../../lib/hashid";
 import { CANCELLABLE_FLIGHT_ORDER_STATUSES, FLIGHT_ORDER_STATUS, NEXT_FLIGHT_ORDER_STEP } from "../../lib/status";
@@ -26,13 +28,16 @@ const STATUS_FILTERS = [
   { key: "CANCELLED", label: "Annulées" },
 ];
 
-function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
+function OrderCard({ order, onAction, onQuote, onSendPaymentInfo, sendingPaymentInfo }) {
   const { flight } = order;
   const roundTrip = Boolean(order.returnFlight);
   const legs = orderLegs(order); // aller (et retour), chacun avec ses valises
   const status = FLIGHT_ORDER_STATUS[order.status];
   const next = NEXT_FLIGHT_ORDER_STEP[order.status];
   const open = CANCELLABLE_FLIGHT_ORDER_STATUSES.includes(order.status);
+  // Vol choisi en direct : l'équipe confirme le vol et le prix avant le paiement
+  const awaitingQuote = order.awaitingQuote;
+  const canQuote = Boolean(order.liveRequest) && order.status === "PENDING";
 
   return (
     <div className="border border-line-light rounded-2xl bg-white p-4">
@@ -40,17 +45,18 @@ function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
         <div className="min-w-0">
           <div className="font-extrabold text-[15px]">
             {flightRouteLabel(flight.origin.name, flight.destination.name, roundTrip)}
-            {!roundTrip && ` · ${flightTimesLabel(flight)}`}
+            {!roundTrip && ` · ${orderTimesLabel(order, flight)}`}
           </div>
           {/* Aller-retour : une ligne par vol */}
           {roundTrip &&
             legs.map((leg) => (
               <div key={leg.leg} className="text-[13px] font-bold">
-                <span className="text-primary">{leg.label}</span> · {flightTimesLabel(leg.flight)}
+                <span className="text-primary">{leg.label}</span> · {orderTimesLabel(order, leg.flight)}
               </div>
             ))}
           <div className="text-xs text-muted">
             <span className="font-mono font-bold text-ink">{order.reference}</span> · demande {timeAgo(order.createdAt)}
+            {order.liveRequest && <span className="text-primary font-bold"> · vol choisi en direct</span>}
           </div>
         </div>
         <Badge tone={status.tone}>{status.label}</Badge>
@@ -62,7 +68,13 @@ function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
           {order.isGuest ? " (visiteur)" : ""} · {formatPhone(order.clientPhone)}
           {order.clientEmail && ` · ${order.clientEmail}`}
         </div>
-        {legs.map((leg) => (
+        <LiveRequestLine order={order} />
+        {awaitingQuote && (
+          <div className="text-ink font-semibold">
+            ⏳ Vol et prix à confirmer : retrouvez le vol, puis « Confirmer le vol et le prix ».
+          </div>
+        )}
+        {!awaitingQuote && legs.map((leg) => (
           <div key={leg.leg}>
             {leg.label && `${leg.label} : `}
             {leg.leg === "OUTBOUND" && `${flightNameLabel(flight)} · `}
@@ -99,7 +111,9 @@ function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
       </div>
 
       <div className="flex flex-wrap justify-between items-center gap-2.5 mt-3">
-        <div className="text-[17px] font-extrabold">{formatMoney(order.totalAmount, order.currency)}</div>
+        <div className="text-[17px] font-extrabold">
+          {awaitingQuote ? <span className="text-muted">Prix à confirmer</span> : formatMoney(order.totalAmount, order.currency)}
+        </div>
         <div className="flex gap-2 flex-wrap">
           {order.conversationId && (
             <Link to={paths.conversation(order.conversationId)} className={`${btnOutline} ${btnSm}`}>
@@ -113,11 +127,16 @@ function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
           )}
           {open && order.purchaseUrl && (
             <a href={order.purchaseUrl} target="_blank" rel="noopener noreferrer" className={`${btnOutline} ${btnSm}`}>
-              <ExternalLink size={15} /> Acheter sur Aviasales
+              <ExternalLink size={15} /> {order.liveRequest ? "Rechercher sur Aviasales" : "Acheter sur Aviasales"}
             </a>
           )}
+          {canQuote && (
+            <button type="button" onClick={() => onQuote(order)} className={`${awaitingQuote ? btnPrimary : btnOutline} ${btnSm}`}>
+              <PlaneTakeoff size={15} /> {awaitingQuote ? "Confirmer le vol et le prix" : "Modifier le vol et le prix"}
+            </button>
+          )}
           {/* Étape avant « Paiement reçu » : numéros de paiement envoyés dans la conversation */}
-          {order.status === "PENDING" && (
+          {order.status === "PENDING" && !awaitingQuote && (
             <button type="button" onClick={() => onSendPaymentInfo(order)} disabled={sendingPaymentInfo}
               className={`${btnOutline} ${btnSm}`}>
               <CreditCard size={15} />
@@ -126,7 +145,7 @@ function OrderCard({ order, onAction, onSendPaymentInfo, sendingPaymentInfo }) {
                 : order.paymentInfoSentAt ? "Renvoyer le numéro de paiement" : "Envoyer le numéro de paiement"}
             </button>
           )}
-          {next && (
+          {next && !awaitingQuote && (
             <button type="button" onClick={() => onAction(order, next.status)} className={`${btnPrimary} ${btnSm}`}>
               <Check size={15} /> {next.action}
             </button>
@@ -157,6 +176,7 @@ export default function FlightOrdersAdmin() {
     [filter, search]
   );
   const [pending, setPending] = useState(null); // { order, status }
+  const [quoting, setQuoting] = useState(null); // demande en direct dont on confirme le vol et le prix
   const [sendingPaymentFor, setSendingPaymentFor] = useState(null); // id de la demande en cours d'envoi
   const [flash, showFlash] = useFlash();
 
@@ -219,12 +239,24 @@ export default function FlightOrdersAdmin() {
       ) : (
         <div className={`flex flex-col gap-3 pb-4 transition-opacity ${orders.loading ? "opacity-60" : ""}`}>
           {orders.items.map((order) => (
-            <OrderCard key={order.id} order={order} onAction={(o, status) => setPending({ order: o, status })}
+            <OrderCard key={order.id} order={order} onAction={(o, status) => setPending({ order: o, status })} onQuote={setQuoting}
               onSendPaymentInfo={sendPaymentInfo} sendingPaymentInfo={sendingPaymentFor === order.id} />
           ))}
         </div>
       )}
       <LoadMore hasMore={orders.hasMore} loading={orders.loadingMore} onClick={orders.loadMore} />
+
+      {quoting && (
+        <QuoteFlightModal
+          order={quoting}
+          onClose={() => setQuoting(null)}
+          onSaved={(updated) => {
+            orders.setItems((items) => items.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)));
+            setQuoting(null);
+            showFlash(`Vol et prix confirmés à ${updated.clientName} : envoyez-lui maintenant le numéro de paiement.`);
+          }}
+        />
+      )}
 
       {/* « Billet émis » (ou nouvel envoi) : le billet part par e-mail */}
       {pending?.status === "ISSUED" && (
