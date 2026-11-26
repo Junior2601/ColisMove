@@ -515,13 +515,19 @@ CREATE TABLE IF NOT EXISTS flight_searches (
   destination        CHAR(3) NOT NULL,
   month              DATE    NOT NULL,          -- premier jour du mois de départ
   return_month       DATE,                      -- premier jour du mois de retour (NULL : aller simple)
+  day                DATE,                      -- jour de départ choisi par le client (NULL : mois entier, admin)
+  return_day         DATE,                      -- jour de retour (NULL : aller simple ou mois entier)
   fetched_at         TIMESTAMPTZ,               -- dernière réponse d'Aviasales (NULL : jamais obtenue)
   offers_count       INT NOT NULL DEFAULT 0,
   requests           INT NOT NULL DEFAULT 0,    -- nombre de recherches des clients
   last_requested_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_flight_searches_route
-  ON flight_searches (origin, destination, month, (COALESCE(return_month, DATE '1900-01-01')));
+CREATE UNIQUE INDEX IF NOT EXISTS uq_flight_searches_route ON flight_searches (
+  origin, destination, month,
+  (COALESCE(return_month, DATE '1900-01-01')),
+  (COALESCE(day, DATE '1900-01-01')),
+  (COALESCE(return_day, DATE '1900-01-01'))
+);
 CREATE INDEX IF NOT EXISTS idx_flight_searches_recent ON flight_searches(last_requested_at DESC);
 
 -- ---------------------------------------------------------

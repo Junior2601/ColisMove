@@ -11,6 +11,14 @@ const nullableNumber = (schema) => z.preprocess(emptyToNull, schema.nullable()).
 const atLeastOneField = (data) => Object.values(data).some((value) => value !== undefined);
 // Mois de retour d'un aller-retour (absent ou vide : aller simple)
 const returnMonthField = z.preprocess(emptyToNull, monthField.nullable()).optional();
+// Jour du calendrier "2026-12-15" (date réelle)
+const dayField = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date invalide (format AAAA-MM-JJ).")
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }, "Date invalide.");
 // Le retour ne part pas avant l'aller : mois de retour ≥ mois de départ
 const returnAfterDeparture = [
   (data) => !data.returnMonth || data.returnMonth >= data.month,
@@ -26,15 +34,19 @@ export const placesQuery = z.object({
   term: z.string().trim().min(2, "Au moins 2 lettres.").max(40),
 });
 
+// Recherche du client : jour de départ (et jour de retour d'un aller-retour) choisis dans le calendrier
 export const searchFlightsQuery = z
   .object({
     origin: cityCode,
     destination: cityCode,
-    month: monthField,
-    returnMonth: returnMonthField, // aller-retour : retour ce mois-là
+    date: dayField,
+    returnDate: z.preprocess(emptyToNull, dayField.nullable()).optional(), // aller-retour : retour ce jour-là
     direct: queryBoolean, // vols directs uniquement (à l'aller comme au retour)
   })
-  .refine(...returnAfterDeparture);
+  .refine((data) => !data.returnDate || data.returnDate >= data.date, {
+    message: "La date de retour ne peut pas être avant la date de départ.",
+    path: ["returnDate"],
+  });
 
 // "1990-03-12" : date réelle du calendrier, après 1900
 const birthDate = z

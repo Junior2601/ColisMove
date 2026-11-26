@@ -11,7 +11,7 @@ import { useApi } from "../../hooks/useApi";
 import { useFlash } from "../../hooks/useFlash";
 import { currencySymbol, formatMoney, formatNumber, formatTripDate, formatTripTime, plural, timeAgo } from "../../lib/format";
 import {
-  arrivalTimeLabel, baggageLabel, defaultMonth, flightRouteLabel, flightTimesLabel, formatDuration, formatMonth, stopsLabel,
+  arrivalTimeLabel, baggageLabel, defaultMonth, flightRouteLabel, flightTimesLabel, formatDay, formatDuration, formatMonth, stopsLabel,
   upcomingMonths,
 } from "../../lib/flights";
 
@@ -307,12 +307,13 @@ export default function FlightOffersAdmin({ settings }) {
           <div className="flex gap-2 flex-wrap">
             {searches.data.items.map((s) => (
               <button
-                key={`${s.origin.code}-${s.destination.code}-${s.month}-${s.returnMonth ?? ""}`}
+                key={`${s.origin.code}-${s.destination.code}-${s.month}-${s.returnMonth ?? ""}-${s.day ?? ""}-${s.returnDay ?? ""}`}
                 type="button"
                 onClick={() => show({ origin: s.origin, destination: s.destination, month: s.month, returnMonth: s.returnMonth ?? "" })}
                 className="border border-line rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold bg-white hover:border-ink transition"
               >
-                {flightRouteLabel(s.origin.name, s.destination.name, Boolean(s.returnMonth))} · {monthsLabel(s.month, s.returnMonth)}
+                {flightRouteLabel(s.origin.name, s.destination.name, Boolean(s.returnMonth))} ·{" "}
+                {s.day ? `${formatDay(s.day)}${s.returnDay ? ` → ${formatDay(s.returnDay)}` : ""}` : monthsLabel(s.month, s.returnMonth)}
                 <span className="text-muted font-normal"> · {plural(s.requests, "recherche")}</span>
               </button>
             ))}

@@ -190,10 +190,10 @@ export default function FlightOffer() {
   );
   const blocker = orderBlocker(user);
   const route = flightRouteLabel(offer.origin.name, offer.destination.name, Boolean(back));
-  // Retour à la recherche de ce trajet et de ce(s) mois (même depuis un lien partagé)
+  // Retour à la recherche de ce trajet à ces dates (même depuis un lien partagé)
   const searchLink =
-    `/?onglet=billets&origine=${offer.origin.code}&destination=${offer.destination.code}&mois=${offer.departureAt.slice(0, 7)}` +
-    (back ? `&retour=${back.departureAt.slice(0, 7)}` : "");
+    `/?onglet=billets&origine=${offer.origin.code}&destination=${offer.destination.code}&date=${offer.departureAt.slice(0, 10)}` +
+    (back ? `&retour=${back.departureAt.slice(0, 10)}` : "");
 
   // Un bloc par passager, dans l'ordre : adultes, enfants, bébés
   const passengerList = passengerSlots(passengers).map(([type, slot]) => ({

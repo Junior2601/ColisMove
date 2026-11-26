@@ -6,8 +6,10 @@ import FlightOfferCard from "./FlightOfferCard";
 import { ChipRow, ErrorState, FilterChip, Loader, Notice, btnPrimary, inputClass } from "../ui";
 import { flightsApi } from "../../api/flights";
 import { useApi } from "../../hooks/useApi";
-import { plural, timeAgo } from "../../lib/format";
-import { defaultMonth, defaultReturnMonth, formatMonth, flightRouteLabel, upcomingMonths } from "../../lib/flights";
+import { formatMoney, plural, timeAgo } from "../../lib/format";
+import {
+  MAX_ROUND_TRIP_DAYS, addDays, flightRouteLabel, formatDay, isIsoDate, lastSearchDay, todayIso,
+} from "../../lib/flights";
 
 // Trajets proposés en un clic (Russie ↔ Afrique)
 const QUICK_ROUTES = [
@@ -34,44 +36,85 @@ const TRIP_TYPES = [
 ];
 
 const isCode = (value) => /^[A-Z]{3}$/.test(value ?? "");
-const isMonth = (value) => /^\d{4}-\d{2}$/.test(value ?? "");
+
+// Départ proposé par défaut : dans 2 semaines (le client peut encore retirer des valises) · retour 2 semaines après
+const DEFAULT_DAYS_AHEAD = 14;
+const DEFAULT_STAY_DAYS = 14;
+
+// Retour gardé s'il reste valable pour ce départ (le jour même jusqu'à 30 jours après), sinon 2 semaines après
+function returnFor(date, returnDate, lastDay) {
+  const latest = [addDays(date, MAX_ROUND_TRIP_DAYS), lastDay].sort()[0];
+  if (returnDate && returnDate >= date && returnDate <= latest) return returnDate;
+  return [addDays(date, DEFAULT_STAY_DAYS), latest].sort()[0];
+}
+
+// Autres dates du même mois, avec leur prix le plus bas : un clic relance la recherche à ces dates
+function NearbyDates({ nearby, currency, title, onPick }) {
+  if (!nearby?.length) return null;
+  const cheapest = Math.min(...nearby.map((d) => d.price));
+  return (
+    <div className="mb-4">
+      <div className="text-[13px] font-bold mb-1.5">{title}</div>
+      <div className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap">
+        {nearby.map((d) => (
+          <button
+            key={`${d.date}-${d.returnDate ?? ""}`}
+            type="button"
+            onClick={() => onPick(d)}
+            className={`shrink-0 text-left rounded-xl border px-3 py-2 bg-white hover:border-ink transition ${
+              d.price === cheapest ? "border-primary" : "border-line"
+            }`}
+          >
+            <span className="block text-[12.5px] font-bold whitespace-nowrap">
+              {formatDay(d.date)}
+              {d.returnDate && ` → ${formatDay(d.returnDate)}`}
+            </span>
+            <span className="block text-[12px] text-muted whitespace-nowrap">
+              dès <b className={d.price === cheapest ? "text-primary" : "text-ink"}>{formatMoney(d.price, currency)}</b>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Onglet « Billets d'avion » de l'accueil : formulaire + résultats.
- * La recherche est dans l'URL (?onglet=billets&origine=MOW&destination=ABJ&mois=2026-12, plus &retour=2027-01
- * pour un aller-retour) : partageable, et le bouton « retour » depuis un billet retrouve les résultats.
+ * La recherche est dans l'URL (?onglet=billets&origine=MOW&destination=ABJ&date=2026-12-15, plus
+ * &retour=2027-01-05 pour un aller-retour) : partageable, et le bouton « retour » depuis un billet retrouve les résultats.
  */
 export default function FlightSearch({ config }) {
   const [params, setParams] = useSearchParams();
   const query = {
     origin: params.get("origine"),
     destination: params.get("destination"),
-    month: params.get("mois"),
-    // Aller-retour : mois du retour (ignoré s'il est invalide ou avant le départ)
-    returnMonth:
-      isMonth(params.get("retour")) && params.get("retour") >= (params.get("mois") ?? "") ? params.get("retour") : null,
+    date: isIsoDate(params.get("date")) ? params.get("date") : null, // jour de départ
+    // Aller-retour : jour du retour (ignoré s'il est invalide ou avant le départ)
+    returnDate:
+      isIsoDate(params.get("retour")) && params.get("retour") >= (params.get("date") ?? "") ? params.get("retour") : null,
     direct: params.get("direct") === "1",
     bags: params.get("bagages") === "1", // bagage en soute inclus (filtre appliqué ici, sur les résultats)
   };
-  const hasQuery = isCode(query.origin) && isCode(query.destination) && isMonth(query.month);
+  const hasQuery = isCode(query.origin) && isCode(query.destination) && Boolean(query.date);
 
-  const months = useMemo(() => upcomingMonths(config.monthsAhead), [config.monthsAhead]);
+  // Dates possibles : d'aujourd'hui à la fin du dernier mois proposé (même limite que le serveur)
+  const firstDay = todayIso();
+  const lastDay = lastSearchDay(config.monthsAhead);
   const [form, setForm] = useState(() => {
-    const month = months.some((m) => m.value === query.month) ? query.month : defaultMonth();
+    const date = query.date && query.date >= firstDay && query.date <= lastDay ? query.date : addDays(firstDay, DEFAULT_DAYS_AHEAD);
     return {
       origin: isCode(query.origin) ? { code: query.origin, name: query.origin } : null,
       destination: isCode(query.destination) ? { code: query.destination, name: query.destination } : null,
-      tripType: query.returnMonth ? "ROUND_TRIP" : "ONE_WAY",
-      month,
-      returnMonth:
-        months.some((m) => m.value === query.returnMonth) && query.returnMonth >= month
-          ? query.returnMonth
-          : defaultReturnMonth(month, months),
+      tripType: query.returnDate ? "ROUND_TRIP" : "ONE_WAY",
+      date,
+      returnDate: returnFor(date, query.returnDate, lastDay),
       direct: query.direct,
       bags: query.bags,
     };
   });
   const roundTripForm = form.tripType === "ROUND_TRIP";
+  const latestReturn = [addDays(form.date || firstDay, MAX_ROUND_TRIP_DAYS), lastDay].sort()[0];
   const [errors, setErrors] = useState({});
   const [sort, setSort] = useState("price");
 
@@ -81,14 +124,14 @@ export default function FlightSearch({ config }) {
         ? flightsApi.search({
             origin: query.origin,
             destination: query.destination,
-            month: query.month,
-            returnMonth: query.returnMonth,
+            date: query.date,
+            returnDate: query.returnDate,
             direct: query.direct || undefined,
           })
         : Promise.resolve(null),
-    [query.origin, query.destination, query.month, query.returnMonth, query.direct]
+    [query.origin, query.destination, query.date, query.returnDate, query.direct]
   );
-  const roundTrip = Boolean(results.data?.returnMonth);
+  const roundTrip = Boolean(results.data?.returnDate);
 
   // Noms des villes reçus avec les résultats (ouverture depuis un lien qui ne contient que les codes)
   const [namedFrom, setNamedFrom] = useState(null);
@@ -110,14 +153,19 @@ export default function FlightSearch({ config }) {
     if (!missing.origin && !missing.destination && next.origin.code === next.destination.code) {
       missing.destination = "Choisissez une ville différente du départ.";
     }
+    if (!next.date || next.date < firstDay || next.date > lastDay) missing.date = "Choisissez la date de départ.";
+    const roundTripNext = next.tripType === "ROUND_TRIP";
+    if (roundTripNext && !missing.date && !(next.returnDate >= next.date && next.returnDate <= returnFor(next.date, next.returnDate, lastDay))) {
+      missing.returnDate = `Retour entre le jour du départ et ${MAX_ROUND_TRIP_DAYS} jours après.`;
+    }
     setErrors(missing);
     if (Object.keys(missing).length) return;
     setParams({
       onglet: "billets",
       origine: next.origin.code,
       destination: next.destination.code,
-      mois: next.month,
-      ...(next.tripType === "ROUND_TRIP" && { retour: next.returnMonth }),
+      date: next.date,
+      ...(roundTripNext && { retour: next.returnDate }),
       ...(next.direct && { direct: "1" }),
       ...(next.bags && { bagages: "1" }),
     });
@@ -127,6 +175,14 @@ export default function FlightSearch({ config }) {
     setForm((f) => ({ ...f, [key]: value }));
     setErrors((e) => ({ ...e, [key]: undefined }));
   };
+
+  // Date proche choisie sous les résultats : nouvelle recherche à ces dates
+  function pickNearby({ date, returnDate }) {
+    const next = { ...form, date, returnDate: returnDate ?? form.returnDate, tripType: returnDate ? "ROUND_TRIP" : "ONE_WAY" };
+    setForm(next);
+    runSearch(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   const sorted = useMemo(() => {
     const items = (results.data?.items ?? []).filter((offer) => !query.bags || offer.checkedBags > 0);
@@ -176,49 +232,56 @@ export default function FlightSearch({ config }) {
           </button>
           <CityInput label="Arrivée" value={form.destination} onChange={set("destination")} placeholder="Ex. Abidjan" error={errors.destination} />
           </div>
+          {/* Jours exacts, choisis dans le calendrier du téléphone ou du navigateur */}
           <div className="grid grid-cols-2 gap-2 sm:gap-3 shrink-0 lg:flex">
             <div className={roundTripForm ? "lg:w-44" : "col-span-2 lg:w-48"}>
-              <label htmlFor="flight-month" className="block text-[13px] font-bold mb-1.5">
-                {roundTripForm ? "Mois de l'aller" : "Mois de départ"}
+              <label htmlFor="flight-date" className="block text-[13px] font-bold mb-1.5">
+                {roundTripForm ? "Aller le" : "Date de départ"}
               </label>
-              <select
-                id="flight-month"
-                value={form.month}
+              <input
+                id="flight-date"
+                type="date"
+                value={form.date}
+                min={firstDay}
+                max={lastDay}
+                required
                 onChange={(e) => {
-                  const month = e.target.value;
-                  // Le retour ne peut pas être avant l'aller : on le décale si besoin
-                  setForm((f) => ({
-                    ...f,
-                    month,
-                    returnMonth: f.returnMonth < month ? defaultReturnMonth(month, months) : f.returnMonth,
-                  }));
+                  const date = e.target.value;
+                  // Le retour suit le départ : gardé s'il reste valable, sinon décalé
+                  setForm((f) => ({ ...f, date, returnDate: date ? returnFor(date, f.returnDate, lastDay) : f.returnDate }));
+                  setErrors((errs) => ({ ...errs, date: undefined, returnDate: undefined }));
                 }}
+                aria-invalid={Boolean(errors.date)}
                 className={inputClass}
-              >
-                {months.map((m) => (
-                  <option key={m.value} value={m.value}>{roundTripForm ? m.short : m.label}</option>
-                ))}
-              </select>
+              />
             </div>
             {roundTripForm && (
               <div className="lg:w-44">
-                <label htmlFor="flight-return-month" className="block text-[13px] font-bold mb-1.5">Mois du retour</label>
-                <select
-                  id="flight-return-month"
-                  value={form.returnMonth}
-                  onChange={(e) => setForm((f) => ({ ...f, returnMonth: e.target.value }))}
+                <label htmlFor="flight-return-date" className="block text-[13px] font-bold mb-1.5">Retour le</label>
+                <input
+                  id="flight-return-date"
+                  type="date"
+                  value={form.returnDate}
+                  min={form.date || firstDay}
+                  max={latestReturn}
+                  required
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, returnDate: e.target.value }));
+                    setErrors((errs) => ({ ...errs, returnDate: undefined }));
+                  }}
+                  aria-invalid={Boolean(errors.returnDate)}
                   className={inputClass}
-                >
-                  {months
-                    .filter((m) => m.value >= form.month)
-                    .map((m) => (
-                      <option key={m.value} value={m.value}>{m.short}</option>
-                    ))}
-                </select>
+                />
               </div>
             )}
           </div>
         </div>
+        {(errors.date || errors.returnDate) && (
+          <div role="alert" className="text-xs text-danger font-semibold mt-1.5">{errors.date ?? errors.returnDate}</div>
+        )}
+        {roundTripForm && (
+          <p className="text-xs text-muted mt-1.5">Retour au plus {MAX_ROUND_TRIP_DAYS} jours après le départ.</p>
+        )}
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-3">
           <label className="inline-flex items-center gap-2 text-sm font-semibold cursor-pointer">
@@ -281,8 +344,8 @@ export default function FlightSearch({ config }) {
               </h2>
               <p className="text-[13px] text-muted">
                 {roundTrip
-                  ? `Aller-retour · aller en ${formatMonth(results.data.month).toLowerCase()}, retour en ${formatMonth(results.data.returnMonth).toLowerCase()}`
-                  : formatMonth(results.data.month)}{" "}
+                  ? `Aller-retour · ${formatDay(results.data.date)} → ${formatDay(results.data.returnDate)}`
+                  : formatDay(results.data.date)}{" "}
                 · {plural(sorted.length, "billet")}
                 {query.direct && " · vols directs"}
                 {query.bags && " · bagage en soute inclus"}
@@ -306,22 +369,32 @@ export default function FlightSearch({ config }) {
           </Notice>
 
           {sorted.length === 0 ? (
-            <div className="text-center text-muted text-sm py-10">
-              {roundTrip
-                ? "Aucun aller-retour trouvé pour ces mois. Essayez d'autres mois, un aller simple"
-                : "Aucun billet trouvé pour ce mois. Essayez un autre mois"}
-              {query.direct ? ", acceptez les escales" : ""}
-              {query.bags ? ", retirez le filtre « Bagage en soute inclus »" : ""} ou une ville proche.
-              <br />
-              Aviasales ne garde que les prix vus récemment par ses utilisateurs : un trajet peu demandé peut ne rien
-              afficher.
-            </div>
+            <>
+              <div className="text-center py-8">
+                <p className="font-extrabold text-[17px]">Aucun billet trouvé</p>
+                <p className="text-muted text-sm mt-1">
+                  {results.data.nearby?.length
+                    ? "Choisissez une autre date ci-dessous"
+                    : roundTrip
+                      ? "Essayez d'autres dates ou un aller simple"
+                      : "Essayez une autre date"}
+                  {query.direct ? ", acceptez les escales" : ""}
+                  {query.bags ? ", retirez le filtre « Bagage en soute inclus »" : ""}.
+                </p>
+              </div>
+              <NearbyDates nearby={results.data.nearby} currency={results.data.currency} title="Billets à d'autres dates"
+                onPick={pickNearby} />
+            </>
           ) : (
-            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" aria-label="Billets disponibles">
-              {sorted.map((offer) => (
-                <FlightOfferCard key={offer.id} offer={offer} />
-              ))}
-            </section>
+            <>
+              <NearbyDates nearby={results.data.nearby} currency={results.data.currency} title="Autres dates, même mois"
+                onPick={pickNearby} />
+              <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" aria-label="Billets disponibles">
+                {sorted.map((offer) => (
+                  <FlightOfferCard key={offer.id} offer={offer} />
+                ))}
+              </section>
+            </>
           )}
         </div>
       )}

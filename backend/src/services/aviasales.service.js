@@ -28,7 +28,12 @@ async function getJson(url, headers = {}) {
     throw new AppError(502, "Le service de billets est mal configuré (clé API refusée).");
   }
   if (response.status === 429) throw new AppError(503, "Trop de recherches en ce moment. Réessayez dans une minute.");
-  if (!response.ok) throw new AppError(502, `Le service de billets a répondu une erreur (${response.status}).`);
+  if (!response.ok) {
+    const err = new AppError(502, `Le service de billets a répondu une erreur (${response.status}).`);
+    err.upstreamStatus = response.status; // réponse d'Aviasales, pour distinguer « rien à chercher » d'une panne
+    err.upstreamError = await response.json().then((body) => body?.error ?? null).catch(() => null);
+    throw err;
+  }
   return response.json();
 }
 
@@ -259,10 +264,11 @@ export async function stopCities(airports) {
 /* ---------- Prix ---------- */
 
 /**
- * Billets d'un trajet pour un mois de départ, du moins cher au plus cher :
+ * Billets d'un trajet, du moins cher au plus cher, pour un mois ("2026-12") ou un jour ("2026-12-15") de départ :
  *  - aller simple (returnMonth absent)
- *  - aller-retour : retour dans returnMonth ; le prix est celui des deux vols
- * month, returnMonth : "2026-12" · currency : "EUR" | "RUB" | "USD"
+ *  - aller-retour : retour ce mois-là ou ce jour-là ; le prix est celui des deux vols
+ * month, returnMonth : "2026-12" ou "2026-12-15" · currency : "EUR" | "RUB" | "USD"
+ * Aviasales ne garde que le prix le plus bas vu ces derniers jours : en aller simple, un billet par jour au plus.
  * "2026-12-15T10:35:00+03:00" → departureAt "2026-12-15T10:35" (heure locale) + departureUtc (instant exact)
  */
 export async function fetchMonthPrices({ origin, destination, month, returnMonth = null, currency }) {
@@ -282,9 +288,20 @@ export async function fetchMonthPrices({ origin, destination, month, returnMonth
     page: "1",
   });
   if (returnMonth) params.set("return_at", returnMonth);
-  const body = await getJson(`${env.aviasales.apiUrl}/aviasales/v3/prices_for_dates?${params}`, {
-    "X-Access-Token": env.aviasales.token,
-  });
+  let body;
+  try {
+    body = await getJson(`${env.aviasales.apiUrl}/aviasales/v3/prices_for_dates?${params}`, {
+      "X-Access-Token": env.aviasales.token,
+    });
+  } catch (err) {
+    // Aller-retour qu'Aviasales ne cherche pas (retour possible à plus de 30 jours après la fin du mois de départ,
+    // ex. départ en décembre et retour en février) : aucun billet, pas une panne
+    if (returnMonth && err.upstreamStatus === 400) {
+      console.warn(`[aviasales] aller-retour ${origin}-${destination} ${month}/${returnMonth} non cherché :`, err.upstreamError);
+      return [];
+    }
+    throw err;
+  }
   if (body?.success === false) throw new AppError(502, `Le service de billets a refusé la recherche${body.error ? ` : ${body.error}` : "."}`);
 
   const sourceCurrency = String(body?.currency ?? currency).toUpperCase();

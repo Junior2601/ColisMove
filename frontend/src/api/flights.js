@@ -5,7 +5,8 @@ export const flightsApi = {
   // → { enabled, currency, childPercent, infantPercent, maxPassengers, monthsAhead, options }
   config: () => api.get("/public/flights/config"),
   places: (term) => api.get("/public/flights/places", { term }), // → { items: [{ code, name, countryName }] }
-  search: (params) => api.get("/public/flights/search", params), // { origin, destination, month, direct }
+  // { origin, destination, date: "2026-12-15", returnDate?, direct } → { items, nearby: [{ date, returnDate, price }], … }
+  search: (params) => api.get("/public/flights/search", params),
   getOffer: (id) => api.get(`/public/flights/offers/${id}`), // → { offer, config }
   // → { flightOrder, conversationId, guestToken? } (guestToken uniquement pour un visiteur)
   // passengers : [{ type: ADULT|CHILD|INFANT, fullName, gender: M|F, birthDate, nationality: "CI", passportNumber }]

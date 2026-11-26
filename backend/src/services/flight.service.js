@@ -12,7 +12,9 @@
 import { withTransaction } from "../config/db.js";
 import * as flightModel from "../models/flight.model.js";
 import * as aviasales from "./aviasales.service.js";
-import { FLIGHT_BAG_REMOVAL_DAYS, FLIGHT_MAX_PASSENGERS, FLIGHT_SEARCH_MONTHS_AHEAD } from "../config/constants.js";
+import {
+  FLIGHT_BAG_REMOVAL_DAYS, FLIGHT_MAX_PASSENGERS, FLIGHT_MAX_ROUND_TRIP_DAYS, FLIGHT_SEARCH_MONTHS_AHEAD,
+} from "../config/constants.js";
 import { badRequest, conflict, notFound } from "../utils/AppError.js";
 
 const round2 = (amount) => Math.round(amount * 100) / 100;
@@ -158,12 +160,37 @@ async function assertKnownCities(...codes) {
   if (known.some((value) => value === false)) throw badRequest("Ville inconnue : choisissez-la dans la liste.");
 }
 
-/** Trajet de la recherche d'un billet déjà enregistré (mois de son départ, et de son retour) */
-const routeOfOffer = (offer) => ({
+// "2026-12-15" → "2026-12-01" (mois de ce jour)
+const monthOf = (isoDate) => `${isoDate.slice(0, 7)}-01`;
+
+/**
+ * "2026-12-15" (et "2027-01-05" pour un aller-retour) → recherche du client à ces jours exacts, sinon erreur :
+ * départ d'aujourd'hui à la fin du 11e mois suivant ; retour le jour du départ ou après, dans la même période.
+ */
+function dayRoute(origin, destination, date, returnDate = null) {
+  const now = new Date();
+  const lastDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + FLIGHT_SEARCH_MONTHS_AHEAD + 1, 0))
+    .toISOString()
+    .slice(0, 10);
+  if (date < now.toISOString().slice(0, 10)) throw badRequest("La date de départ est déjà passée.");
+  if (date > lastDay || (returnDate && returnDate > lastDay)) {
+    throw badRequest(`Choisissez des dates dans les ${FLIGHT_SEARCH_MONTHS_AHEAD} prochains mois.`);
+  }
+  if (returnDate && returnDate < date) throw badRequest("La date de retour ne peut pas être avant la date de départ.");
+  const route = monthRoute(origin, destination, date.slice(0, 7), returnDate ? returnDate.slice(0, 7) : null);
+  return { ...route, day: date, returnDay: returnDate };
+}
+
+// Mois entier autour de la recherche du client : sert aux « dates proches »
+const monthRouteOf = ({ origin, destination, month, returnMonth }) => ({ origin, destination, month, returnMonth });
+
+/** Recherche à laquelle appartient un billet : ses jours exacts (achat), ou ses mois (liste de l'admin) */
+const routeOfOffer = (offer, { byDay = true } = {}) => ({
   origin: offer.origin,
   destination: offer.destination,
-  month: `${offer.departureAt.slice(0, 7)}-01`,
-  returnMonth: offer.returnAt ? `${offer.returnAt.slice(0, 7)}-01` : null,
+  month: monthOf(offer.departureAt),
+  returnMonth: offer.returnAt ? monthOf(offer.returnAt) : null,
+  ...(byDay && { day: offer.departureAt.slice(0, 10), returnDay: offer.returnAt ? offer.returnAt.slice(0, 10) : null }),
 });
 
 const inflight = new Map(); // deux recherches simultanées du même trajet → un seul appel à Aviasales
@@ -178,14 +205,16 @@ async function ensureFresh(route, settings, { force = false } = {}) {
   const fresh = search?.fetchedAt && Date.now() - search.fetchedAt.getTime() < settings.cacheHours * 3600_000;
   if (fresh && !force) return { fetchedAt: search.fetchedAt, stale: false };
 
-  const key = `${route.origin}-${route.destination}-${route.month}-${route.returnMonth ?? "aller"}`;
+  const key = [route.origin, route.destination, route.month, route.returnMonth ?? "aller", route.day ?? "", route.returnDay ?? ""].join("-");
   if (!inflight.has(key)) {
     const job = (async () => {
+      // Jour exact (recherche du client) ou mois entier (admin, dates proches)
+      const returnPeriod = route.returnDay ?? (route.returnMonth ? route.returnMonth.slice(0, 7) : null);
       const offers = await aviasales.fetchMonthPrices({
         origin: route.origin,
         destination: route.destination,
-        month: route.month.slice(0, 7),
-        returnMonth: route.returnMonth ? route.returnMonth.slice(0, 7) : null,
+        month: route.day ?? route.month.slice(0, 7),
+        returnMonth: returnPeriod,
         currency: settings.sourceCurrency,
       });
       return withTransaction(async (db) => {
@@ -318,36 +347,88 @@ export async function searchCities(term) {
   return aviasales.searchCities(term);
 }
 
+// Vols directs : à l'aller comme au retour
+const directOnly = (offers, direct) => (direct ? offers.filter((offer) => offer.transfers === 0 && !offer.returnTransfers) : offers);
+
+// Écart en jours entre deux dates "AAAA-MM-JJ"
+const daysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00Z`) - Date.parse(`${a}T00:00Z`)) / 86_400_000);
+
 /**
- * Billets d'un trajet pour un mois : { origin, destination, month, returnMonth, items, fetchedAt, stale }
- * returnMonth : billets aller-retour avec un retour ce mois-là (absent : aller simple)
+ * Dates proches de celles du client, avec le prix le plus bas de chacune (billets du mois entier) :
+ * [{ date, returnDate, price }] — les plus proches d'abord, sans les dates demandées. Le mois est chargé en même
+ * temps que la recherche exacte ; s'il échoue, la recherche du client s'affiche quand même, sans dates proches.
  */
-export async function searchOffers({ origin, destination, month, returnMonth = null, direct }) {
+async function nearbyDates(route, settings, direct, limit = 8) {
+  try {
+    const wholeMonth = monthRouteOf(route);
+    const { fetchedAt } = await ensureFresh(wholeMonth, settings);
+    const offers = directOnly(
+      await flightModel.listForRoute(wholeMonth, {
+        sourceCurrency: settings.sourceCurrency,
+        freshSince: fetchedAt,
+        minHours: settings.minHoursBeforeDeparture,
+      }),
+      direct
+    );
+    const best = new Map(); // "départ|retour" → prix le plus bas
+    for (const offer of offers) {
+      const date = offer.departureAt.slice(0, 10);
+      const returnDate = offer.returnAt ? offer.returnAt.slice(0, 10) : null;
+      if (date === route.day && returnDate === route.returnDay) continue;
+      // Aller-retour de plus de 30 jours : Aviasales refuserait de le chercher au jour exact
+      if (returnDate && daysBetween(date, returnDate) > FLIGHT_MAX_ROUND_TRIP_DAYS) continue;
+      const key = `${date}|${returnDate ?? ""}`;
+      const { adultPrice } = priceOffer(offer, settings);
+      if (!best.has(key) || adultPrice < best.get(key).price) best.set(key, { date, returnDate, price: adultPrice });
+    }
+    const distance = (d) => Math.abs(daysBetween(route.day, d.date)) + (d.returnDate ? Math.abs(daysBetween(route.returnDay, d.returnDate)) : 0);
+    return [...best.values()]
+      .sort((a, b) => distance(a) - distance(b) || a.price - b.price)
+      .slice(0, limit)
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.returnDate ?? "").localeCompare(b.returnDate ?? ""));
+  } catch (err) {
+    console.error("[billets] dates proches :", err.message);
+    return [];
+  }
+}
+
+/**
+ * Billets d'un trajet à une date exacte, choisie par le client dans le calendrier :
+ * { origin, destination, date, returnDate, tripType, items, nearby, fetchedAt, stale }
+ *  - returnDate : aller-retour avec retour ce jour-là (absent : aller simple)
+ *  - nearby     : autres dates du même mois avec leur prix le plus bas (le client change de date en un clic)
+ */
+export async function searchOffers({ origin, destination, date, returnDate = null, direct }) {
   const settings = await flightModel.getSettings();
   assertEnabled(settings);
-  const route = monthRoute(origin, destination, month, returnMonth);
+  const route = dayRoute(origin, destination, date, returnDate);
   await assertKnownCities(origin, destination);
   await flightModel.recordRequest(route);
-  const { fetchedAt, stale } = await ensureFresh(route, settings);
-  let offers = await flightModel.listForRoute(route, {
-    sourceCurrency: settings.sourceCurrency,
-    freshSince: fetchedAt,
-    minHours: settings.minHoursBeforeDeparture,
-  });
-  // Vols directs : à l'aller comme au retour
-  if (direct) offers = offers.filter((offer) => offer.transfers === 0 && !offer.returnTransfers);
+  const [{ fetchedAt, stale }, nearby] = await Promise.all([
+    ensureFresh(route, settings),
+    nearbyDates(route, settings, direct),
+  ]);
+  const offers = directOnly(
+    await flightModel.listForRoute(route, {
+      sourceCurrency: settings.sourceCurrency,
+      freshSince: fetchedAt,
+      minHours: settings.minHoursBeforeDeparture,
+    }),
+    direct
+  );
 
   const names = await lookups([{ origin, destination, airline: "" }, ...offers]);
   return {
     origin: names.cities.get(origin),
     destination: names.cities.get(destination),
-    month,
-    returnMonth,
-    tripType: returnMonth ? "ROUND_TRIP" : "ONE_WAY",
+    date,
+    returnDate,
+    tripType: returnDate ? "ROUND_TRIP" : "ONE_WAY",
     currency: settings.currency,
     fetchedAt,
     stale,
     items: offers.map((offer) => toPublicOffer(offer, settings, names)),
+    nearby,
   };
 }
 
@@ -473,7 +554,7 @@ export async function updateOffer(id, data, adminId) {
   const offer = await flightModel.updateOfferAdmin(id, data, adminId);
   if (!offer) throw notFound("Billet introuvable.");
   const [settings, names] = await Promise.all([flightModel.getSettings(), lookups([offer])]);
-  const search = await flightModel.getSearch(routeOfOffer(offer));
+  const search = await flightModel.getSearch(routeOfOffer(offer, { byDay: false })); // liste de l'admin : par mois
   return toAdminOffer(offer, settings, names, search?.fetchedAt);
 }
 

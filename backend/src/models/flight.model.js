@@ -100,12 +100,16 @@ export async function deleteOption(id, db = pool) {
   return rowCount > 0;
 }
 
-/* ===================== Recherches (cache par trajet, mois de départ et mois de retour) ===================== */
-// route = { origin: "MOW", destination: "ABJ", month: "2026-12-01", returnMonth: "2027-01-01" | null (aller simple) }
+/* ===================== Recherches (cache par trajet, par mois ou par jour) ===================== */
+// route = { origin: "MOW", destination: "ABJ", month: "2026-12-01", returnMonth: "2027-01-01" | null (aller simple),
+//           day: "2026-12-15" | null (mois entier), returnDay: "2027-01-05" | null }
+// Client : jour exact choisi dans le calendrier · admin et « dates proches » : mois entier (day null)
 
-// Clé de cache : le mois de retour, ou une date fixe pour l'aller simple (même expression que l'index unique)
-const SEARCH_CONFLICT = "ON CONFLICT (origin, destination, month, (COALESCE(return_month, DATE '1900-01-01')))";
-const SEARCH_SELECT = `SELECT *, to_char(month, 'YYYY-MM') AS month_key, to_char(return_month, 'YYYY-MM') AS return_month_key
+// Clé de cache : mêmes expressions que l'index unique (date fixe à la place d'une valeur absente)
+const SEARCH_CONFLICT = `ON CONFLICT (origin, destination, month, (COALESCE(return_month, DATE '1900-01-01')),
+  (COALESCE(day, DATE '1900-01-01')), (COALESCE(return_day, DATE '1900-01-01')))`;
+const SEARCH_SELECT = `SELECT *, to_char(month, 'YYYY-MM') AS month_key, to_char(return_month, 'YYYY-MM') AS return_month_key,
+         to_char(day, 'YYYY-MM-DD') AS day_key, to_char(return_day, 'YYYY-MM-DD') AS return_day_key
   FROM flight_searches`;
 
 function toSearch(row) {
@@ -115,6 +119,8 @@ function toSearch(row) {
     destination: row.destination,
     month: row.month_key, // "2026-12" (DATE lue en texte : pas de conversion de fuseau)
     returnMonth: row.return_month_key ?? null, // "2027-01" (aller-retour) ou null (aller simple)
+    day: row.day_key ?? null, // "2026-12-15" (jour choisi par le client) ou null (mois entier)
+    returnDay: row.return_day_key ?? null,
     fetchedAt: row.fetched_at,
     offersCount: row.offers_count,
     requests: row.requests,
@@ -122,41 +128,47 @@ function toSearch(row) {
   };
 }
 
-export async function getSearch({ origin, destination, month, returnMonth = null }, db = pool) {
+export async function getSearch({ origin, destination, month, returnMonth = null, day = null, returnDay = null }, db = pool) {
   const { rows } = await db.query(
     `${SEARCH_SELECT}
-     WHERE origin = $1 AND destination = $2 AND month = $3::date AND return_month IS NOT DISTINCT FROM $4::date`,
-    [origin, destination, month, returnMonth]
+     WHERE origin = $1 AND destination = $2 AND month = $3::date AND return_month IS NOT DISTINCT FROM $4::date
+       AND day IS NOT DISTINCT FROM $5::date AND return_day IS NOT DISTINCT FROM $6::date`,
+    [origin, destination, month, returnMonth, day, returnDay]
   );
   return toSearch(rows[0]);
 }
 
 // Une recherche de client de plus sur ce trajet (statistiques de l'admin)
-export async function recordRequest({ origin, destination, month, returnMonth = null }, db = pool) {
+export async function recordRequest({ origin, destination, month, returnMonth = null, day = null, returnDay = null }, db = pool) {
   await db.query(
-    `INSERT INTO flight_searches (origin, destination, month, return_month, requests) VALUES ($1, $2, $3::date, $4::date, 1)
+    `INSERT INTO flight_searches (origin, destination, month, return_month, day, return_day, requests)
+     VALUES ($1, $2, $3::date, $4::date, $5::date, $6::date, 1)
      ${SEARCH_CONFLICT}
      DO UPDATE SET requests = flight_searches.requests + 1, last_requested_at = NOW()`,
-    [origin, destination, month, returnMonth]
+    [origin, destination, month, returnMonth, day, returnDay]
   );
 }
 
 // Réponse d'Aviasales enregistrée : même NOW() que les billets mis à jour dans la même transaction
-export async function markFetched({ origin, destination, month, returnMonth = null }, offersCount, db = pool) {
+export async function markFetched(
+  { origin, destination, month, returnMonth = null, day = null, returnDay = null },
+  offersCount,
+  db = pool
+) {
   const { rows } = await db.query(
-    `INSERT INTO flight_searches (origin, destination, month, return_month, fetched_at, offers_count)
-     VALUES ($1, $2, $3::date, $4::date, NOW(), $5)
-     ${SEARCH_CONFLICT} DO UPDATE SET fetched_at = NOW(), offers_count = $5
+    `INSERT INTO flight_searches (origin, destination, month, return_month, day, return_day, fetched_at, offers_count)
+     VALUES ($1, $2, $3::date, $4::date, $5::date, $6::date, NOW(), $7)
+     ${SEARCH_CONFLICT} DO UPDATE SET fetched_at = NOW(), offers_count = $7
      RETURNING fetched_at`,
-    [origin, destination, month, returnMonth, offersCount]
+    [origin, destination, month, returnMonth, day, returnDay, offersCount]
   );
   return rows[0].fetched_at;
 }
 
-// Trajets les plus récemment recherchés par les clients (page admin)
+// Trajets les plus récemment recherchés par les clients (page admin ; sans les mois chargés pour les dates proches)
 export async function listRecentSearches(limit = 20, db = pool) {
   const { rows } = await db.query(
-    `${SEARCH_SELECT} WHERE month >= date_trunc('month', NOW())::date
+    `${SEARCH_SELECT} WHERE month >= date_trunc('month', NOW())::date AND requests > 0
      ORDER BY last_requested_at DESC LIMIT $1`,
     [limit]
   );
@@ -314,13 +326,13 @@ export async function upsertOffers(offers, db = pool) {
 
 /**
  * Billets d'un trajet pour un mois de départ, du moins cher au plus cher : aller simple (returnMonth null) ou
- * aller-retour avec un retour dans returnMonth (jamais les deux mélangés).
+ * aller-retour avec un retour dans returnMonth (jamais les deux mélangés). day / returnDay : ce jour-là seulement.
  *  - publicOnly  : sans les billets masqués, ceux absents de la dernière réponse d'Aviasales (freshSince)
  *                  ni ceux qui partent dans moins de minHours heures
  *  - sinon (admin) : tout ce qui n'est pas encore parti
  */
 export async function listForRoute(
-  { origin, destination, month, returnMonth = null },
+  { origin, destination, month, returnMonth = null, day = null, returnDay = null },
   { sourceCurrency, freshSince = null, minHours = 0, publicOnly = true },
   db = pool
 ) {
@@ -333,9 +345,14 @@ export async function listForRoute(
        AND ($6::boolean = FALSE OR (NOT hidden AND fetched_at >= $7::timestamptz))
        AND (CASE WHEN $8::date IS NULL THEN return_at IS NULL
                  ELSE return_at >= $8::date AND return_at < ($8::date + INTERVAL '1 month') END)
+       AND ($9::date IS NULL OR departure_at::date = $9::date)
+       AND ($10::date IS NULL OR return_at::date = $10::date)
      ORDER BY source_price, departure_at
      LIMIT 300`,
-    [origin, destination, month, sourceCurrency, publicOnly ? minHours : 0, publicOnly, freshSince ?? "-infinity", returnMonth]
+    [
+      origin, destination, month, sourceCurrency, publicOnly ? minHours : 0, publicOnly, freshSince ?? "-infinity",
+      returnMonth, day, returnDay,
+    ]
   );
   return rows.map(toOffer);
 }

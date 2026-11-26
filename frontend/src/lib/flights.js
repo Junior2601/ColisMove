@@ -133,18 +133,15 @@ export function birthDateLimits(type, departureAt) {
 const monthFmt = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
 const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
-const shortMonthFmt = new Intl.DateTimeFormat("fr-FR", { month: "short", year: "numeric", timeZone: "UTC" });
-
 export const formatMonth = (yyyyMm) => capitalize(monthFmt.format(new Date(`${yyyyMm}-01T00:00:00Z`))); // "Décembre 2026"
-const formatShortMonth = (yyyyMm) => capitalize(shortMonthFmt.format(new Date(`${yyyyMm}-01T00:00:00Z`))); // "Déc. 2026"
 
-// Mois proposés : celui-ci et les `ahead` suivants → [{ value: "2026-12", label: "Décembre 2026", short: "Déc. 2026" }]
+// Mois proposés : celui-ci et les `ahead` suivants → [{ value: "2026-12", label: "Décembre 2026" }]
 export function upcomingMonths(ahead = 11) {
   const now = new Date();
   return Array.from({ length: ahead + 1 }, (_, i) => {
     const date = new Date(Date.UTC(now.getFullYear(), now.getMonth() + i, 1));
     const value = date.toISOString().slice(0, 7);
-    return { value, label: formatMonth(value), short: formatShortMonth(value) };
+    return { value, label: formatMonth(value) };
   });
 }
 
@@ -154,11 +151,31 @@ export function defaultMonth() {
   return new Date().getDate() > 20 ? months[1].value : months[0].value;
 }
 
-// Mois de retour proposé par défaut : celui qui suit le départ (ou le départ s'il est le dernier proposé)
-export function defaultReturnMonth(month, months) {
-  const index = months.findIndex((m) => m.value === month);
-  return months[Math.min(index + 1, months.length - 1)]?.value ?? month;
+/* ---------- Dates du calendrier (recherche au jour exact) ---------- */
+
+// Aller-retour : Aviasales ne propose pas de retour plus de 30 jours après le départ
+export const MAX_ROUND_TRIP_DAYS = 30;
+
+// Date du jour dans le fuseau du navigateur : "2026-11-26"
+export function todayIso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
+
+// "2026-12-15" + 14 → "2026-12-29"
+export const addDays = (isoDate, days) => toIsoDate(new Date(Date.parse(`${isoDate}T00:00:00Z`) + days * 86_400_000));
+
+export const isIsoDate = (value) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(value ?? "") && toIsoDate(new Date(`${value}T00:00:00Z`)) === value;
+
+// Dernier jour cherchable : fin du `ahead`-ième mois après celui-ci (même limite que le serveur)
+export function lastSearchDay(ahead = 11) {
+  const now = new Date();
+  return toIsoDate(new Date(Date.UTC(now.getFullYear(), now.getMonth() + ahead + 1, 0)));
+}
+
+// "2026-12-15" → "Mar. 15 déc."
+export const formatDay = (isoDate) => formatTripDate(`${isoDate}T00:00`);
 
 /* ---------- Total d'une demande ---------- */
 
