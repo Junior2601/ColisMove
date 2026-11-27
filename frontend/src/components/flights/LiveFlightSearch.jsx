@@ -12,20 +12,39 @@ function LiveWidget() {
   return <div ref={hostRef} className="min-h-105" />;
 }
 
-const searchInAddress = () => new URLSearchParams(window.location.search).has("flightSearch");
+const searchInAddress = () => new URLSearchParams(window.location.search).get("flightSearch") ?? "";
 
 /**
- * Une recherche est-elle lancée dans le widget ? Il l'écrit dans l'adresse (?flightSearch=…) sans prévenir la page :
- * on relit l'adresse chaque seconde tant que le widget est affiché.
+ * Recherche en cours dans le widget ("" avant la première). Il l'écrit dans l'adresse (?flightSearch=…) sans
+ * prévenir la page : on relit l'adresse toutes les demi-secondes tant que le widget est affiché.
  */
 function useWidgetSearch(active) {
-  const [hasSearch, setHasSearch] = useState(searchInAddress);
+  const [search, setSearch] = useState(searchInAddress);
   useEffect(() => {
     if (!active) return undefined;
-    const timer = setInterval(() => setHasSearch(searchInAddress()), 1000);
+    const timer = setInterval(() => setSearch(searchInAddress()), 500);
     return () => clearInterval(timer);
   }, [active]);
-  return hasSearch;
+  return search;
+}
+
+// Descend jusqu'aux résultats du widget (sur téléphone, ils se chargent sous le formulaire, hors de vue)
+function scrollToResults() {
+  const results = document.getElementById("tpwl-tickets");
+  if (!results) return;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  results.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+}
+
+/** Nouvelle recherche lancée dans le widget → on descend jusqu'aux résultats qui se chargent */
+function useScrollToNewSearch(active, search) {
+  // Recherche déjà là en arrivant (lien partagé, retour du formulaire de paiement) : pas de saut
+  const seen = useRef(search);
+  useEffect(() => {
+    if (!active || !search || search === seen.current) return;
+    seen.current = search;
+    scrollToResults();
+  }, [active, search]);
 }
 
 // Avant l'accord : la recherche d'Aviasales (et ses cookies) n'est chargée qu'au clic
@@ -73,8 +92,9 @@ export default function LiveFlightSearch({ canOrder }) {
   const navigate = useNavigate();
   const { consent, grant } = useConsent();
   const allowed = Boolean(consent?.choices?.[LIVE_CONSENT_KEY]);
-  const hasSearch = useWidgetSearch(allowed);
-  const showPay = allowed && canOrder && hasSearch;
+  const search = useWidgetSearch(allowed);
+  useScrollToNewSearch(allowed, search);
+  const showPay = allowed && canOrder && Boolean(search);
 
   // Recherche et billet partagé en cours dans le widget, lus dans l'adresse au moment du clic
   function payWithMoveColis() {

@@ -26,3 +26,13 @@ body {
   @apply font-sans text-ink bg-white antialiased;
   line-height: inherit; /* 1.5 de html, même si un style tiers en déclare un autre sur body */
 }
+
+/* Recherche de billets : en descendant jusqu'aux résultats, leur haut s'arrête sous la barre du haut (fixe) */
+#tpwl-tickets {
+  scroll-margin-top: 4.5rem;
+}
+@media (width >= 64rem) {
+  #tpwl-tickets {
+    scroll-margin-top: 5.5rem;
+  }
+}
