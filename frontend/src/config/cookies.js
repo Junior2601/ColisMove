@@ -54,13 +54,13 @@ export const COOKIE_CATEGORIES = [
   },
   {
     key: "liveFlights",
-    label: "Recherche de vols en direct",
+    label: "Recherche de billets d'avion",
     required: false,
     enabled: true,
-    // Demandé sur la page concernée (« Vols en direct »), pas dans le bandeau : rien n'est chargé ailleurs
+    // Demandé à l'affichage de la recherche (onglet « Billets d'avion »), pas dans le bandeau : rien n'est chargé ailleurs
     contextual: true,
     description:
-      "La page « Vols en direct » affiche la recherche de billets d'Aviasales (via Travelpayouts). Elle n'est chargée que si vous l'affichez : Aviasales dépose alors ses propres cookies pour mémoriser la langue et la devise, et mesurer l'utilisation de sa recherche.",
+      "La recherche de l'onglet « Billets d'avion » est celle d'Aviasales (via Travelpayouts). Elle n'est chargée que si vous l'affichez : Aviasales dépose alors ses propres cookies pour mémoriser la langue et la devise, et mesurer l'utilisation de sa recherche.",
     items: [
       { name: "tpwl_locale, tpwl_currency", provider: "Aviasales (Travelpayouts)", type: "Cookie", purpose: "Mémoriser la langue et la devise de la recherche.", duration: "12 mois" },
       { name: "_sp_id.*, _sp_ses.*", provider: "Aviasales (Travelpayouts)", type: "Cookie", purpose: "Mesurer l'utilisation de la recherche (visites, recherches).", duration: "13 mois (_sp_id), 30 minutes (_sp_ses)" },
@@ -72,5 +72,5 @@ export const COOKIE_CATEGORIES = [
 
 // Catégories soumises à consentement réellement utilisées (outil configuré)
 export const OPTIONAL_CATEGORIES = COOKIE_CATEGORIES.filter((c) => !c.required && c.enabled);
-// Catégories demandées dans le bandeau : les autres le sont sur la page qui s'en sert (ex. « Vols en direct »)
+// Catégories demandées dans le bandeau : les autres le sont là où elles servent (ex. recherche de billets d'avion)
 export const BANNER_CATEGORIES = OPTIONAL_CATEGORIES.filter((c) => !c.contextual);

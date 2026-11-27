@@ -1,15 +1,15 @@
 import { pool } from "../config/db.js";
-import { FLIGHT_LIVE_PATH } from "../config/constants.js";
+import { FLIGHT_SEARCH_PAGE } from "../config/constants.js";
 import { likePattern } from "../utils/sql.js";
 import { toLocalIso } from "../utils/date.js";
 
 /**
- * Demande « vol choisi en direct » : lien vers la recherche du client sur la page « Vols en direct »
+ * Demande « vol choisi en direct » : lien vers la recherche du client dans l'onglet « Billets d'avion »
  * (et le billet qu'il a partagé). Codes vérifiés à la demande, chemin interne au site.
  */
 export const liveSearchUrl = (live) =>
   live?.search
-    ? `${FLIGHT_LIVE_PATH}?flightSearch=${encodeURIComponent(live.search)}` +
+    ? `${FLIGHT_SEARCH_PAGE}?flightSearch=${encodeURIComponent(live.search)}` +
       (live.ticketId ? `&ticketId=${encodeURIComponent(live.ticketId)}` : "")
     : null;
 

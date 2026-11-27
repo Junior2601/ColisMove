@@ -58,7 +58,7 @@ export default function Layout({ children, variant = "public" }) {
             <NavLink to="/" end className={topLinkClass}>
               Voyages
             </NavLink>
-            <Link to="/?onglet=billets" className={topLinkClass}>
+            <Link to="/vols-en-direct" className={topLinkClass}>
               Billets d&apos;avion
             </Link>
             <NavLink to="/suivi" className={topLinkClass}>

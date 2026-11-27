@@ -11,7 +11,7 @@ export const flightsApi = {
   // → { flightOrder, conversationId, guestToken? } (guestToken uniquement pour un visiteur)
   // passengers : [{ type: ADULT|CHILD|INFANT, fullName, gender: M|F, birthDate, nationality: "CI", passportNumber }]
   createOrder: (data) => api.post("/public/flight-orders", data),
-  // Vol choisi dans la recherche en direct : { origin, destination, date, returnDate?, airline, departureTime?,
+  // Vol choisi dans la recherche de billets (Aviasales en direct) : { origin, destination, date, returnDate?, airline, departureTime?,
   // returnDepartureTime?, seenPrice?, shareLink?, clientName…, passengers } → même réponse que createOrder
   createLiveOrder: (data) => api.post("/public/flight-orders/live", data),
   countries: () => api.get("/public/countries"), // → { items: [{ code: "CI", name, dialCode: "225", flag }] }

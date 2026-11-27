@@ -367,7 +367,7 @@ function liveFirstMessage(order) {
 }
 
 /**
- * Demande « vol choisi en direct » : le client a trouvé son vol sur la page « Vols en direct » et le décrit
+ * Demande « vol choisi en direct » : le client a trouvé son vol dans la recherche de billets et le décrit
  * (compagnie, heures, prix vu, lien « Partager »). La demande s'ouvre sans prix : l'équipe retrouve le vol,
  * le confirme avec son prix (quoteLiveOrder), puis le parcours habituel suit (paiement, billet par e-mail).
  */
@@ -393,7 +393,7 @@ export async function createLiveOrder(input, { user = null } = {}) {
   const shared = input.shareLink ? parseShareLink(input.shareLink) : null;
   if (input.shareLink && !shared) {
     throw badRequest("Vérifiez le lien du billet.", [
-      { field: "shareLink", message: "Collez le lien copié avec « Partager » sur la page Vols en direct, ou laissez vide." },
+      { field: "shareLink", message: "Collez le lien copié avec « Partager » dans la recherche de billets, ou laissez vide." },
     ]);
   }
 

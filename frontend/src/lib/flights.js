@@ -1,5 +1,5 @@
 // =========================================================
-//  Billets d'avion : affichage et calcul du total (même calcul que le backend)
+//  Billets d'avion : affichage des demandes, passagers et dates
 // =========================================================
 
 import { formatNumber, formatTripDate, formatTripTime, plural } from "./format";
@@ -20,26 +20,6 @@ export function stopsLabel(transfers, stops = []) {
   const cities = stopCitiesText(stops);
   if (!cities) return plural(transfers, "escale");
   return transfers === 1 ? `Escale à ${cities}` : `${plural(transfers, "escale")} : ${cities}`;
-}
-
-// Version courte, sous la ligne du vol : "Direct", "via Doha", "via Istanbul, Nice"
-export function stopsShortLabel(transfers, stops = []) {
-  if (!transfers) return "Direct";
-  const cities = stopCitiesText(stops);
-  return cities ? `via ${cities}` : plural(transfers, "escale");
-}
-
-// Détail : "Doha (DOH)", "Istanbul (IST → SAW, changement d'aéroport), Nice (NCE)"
-export function stopsDetail(transfers, stops = []) {
-  if (!transfers) return "Vol direct";
-  if (!stops.length) return plural(transfers, "escale");
-  return stops
-    .map((stop) => {
-      const airports = stop.airports ?? [stop.code];
-      const change = airports.length > 1 ? `${airports.join(" → ")}, changement d'aéroport` : airports[0];
-      return `${stop.name ?? stop.code} (${change})`;
-    })
-    .join(", ");
 }
 
 // Jours entre la date de départ et celle d'arrivée (heures locales) : 0, 1, 2…
@@ -151,10 +131,7 @@ export function defaultMonth() {
   return new Date().getDate() > 20 ? months[1].value : months[0].value;
 }
 
-/* ---------- Dates du calendrier (recherche au jour exact) ---------- */
-
-// Aller-retour : Aviasales ne propose pas de retour plus de 30 jours après le départ
-export const MAX_ROUND_TRIP_DAYS = 30;
+/* ---------- Dates du calendrier ---------- */
 
 // Date du jour dans le fuseau du navigateur : "2026-11-26"
 export function todayIso() {
@@ -168,70 +145,8 @@ export const addDays = (isoDate, days) => toIsoDate(new Date(Date.parse(`${isoDa
 export const isIsoDate = (value) =>
   /^\d{4}-\d{2}-\d{2}$/.test(value ?? "") && toIsoDate(new Date(`${value}T00:00:00Z`)) === value;
 
-// Dernier jour cherchable : fin du `ahead`-ième mois après celui-ci (même limite que le serveur)
-export function lastSearchDay(ahead = 11) {
-  const now = new Date();
-  return toIsoDate(new Date(Date.UTC(now.getFullYear(), now.getMonth() + ahead + 1, 0)));
-}
-
 // "2026-12-15" → "Mar. 15 déc."
 export const formatDay = (isoDate) => formatTripDate(`${isoDate}T00:00`);
-
-/* ---------- Total d'une demande ---------- */
-
-const round2 = (amount) => Math.round(amount * 100) / 100;
-
-// Valises en soute incluses pour la demande : par passager, bébés exclus
-export const includedBags = (offer, { adults, children }) => offer.checkedBags * (adults + children);
-
-/**
- * Passagers × prix − valises retirées (aller, puis retour d'un aller-retour) + options (prix × quantité, × nombre de
- * passagers pour une option « par passager »).
- * quantities : { [optionId]: quantité } · bagsKept / returnBagsKept : valises gardées sur chaque vol (tous passagers)
- * La réduction des valises ne dépasse jamais le prix des billets (même calcul que le backend).
- * → { lines: [{ label, detail, amount }], total, freedKilos, returnFreedKilos }
- */
-export function computeTotal(offer, { adults, children, infants }, quantities, options, formatPrice, bagsKept, returnBagsKept) {
-  const lines = [];
-  const addPassengers = (count, word, unitPrice) => {
-    if (count > 0) lines.push({ label: plural(count, word), detail: `× ${formatPrice(unitPrice)}`, amount: count * unitPrice });
-  };
-  addPassengers(adults, "adulte", offer.adultPrice);
-  addPassengers(children, "enfant", offer.childPrice);
-  addPassengers(infants, "bébé", offer.infantPrice);
-
-  const fare = lines.reduce((sum, line) => sum + line.amount, 0);
-  const roundTrip = Boolean(offer.returnFlight);
-  const included = includedBags(offer, { adults, children });
-  let remaining = fare; // la réduction totale ne dépasse pas le prix des billets
-  const removeBags = (kept, flight) => {
-    const removed = Math.max(0, included - (kept ?? Infinity));
-    if (removed > 0) {
-      const discount = round2(Math.max(0, Math.min(removed * offer.bagRefund, remaining)));
-      remaining -= discount;
-      lines.push({ label: `${removedBagsLabel(removed)}${flight}`, detail: `× −${formatPrice(offer.bagRefund)}`, amount: -discount });
-    }
-    return removed;
-  };
-  const removed = removeBags(bagsKept, roundTrip ? " (aller)" : "");
-  const returnRemoved = roundTrip ? removeBags(returnBagsKept, " (retour)") : 0;
-
-  const passengers = adults + children + infants;
-  for (const option of options) {
-    const quantity = quantities[option.id] ?? 0;
-    if (!quantity) continue;
-    const perPassenger = option.unit === "PASSENGER";
-    const amount = round2(option.price * quantity * (perPassenger ? passengers : 1));
-    const times = quantity * (perPassenger ? passengers : 1);
-    lines.push({ label: option.label, detail: `${times} × ${formatPrice(option.price)}`, amount });
-  }
-  return {
-    lines,
-    total: round2(lines.reduce((sum, line) => sum + line.amount, 0)),
-    freedKilos: removed * offer.checkedBagKg,
-    returnFreedKilos: returnRemoved * offer.checkedBagKg,
-  };
-}
 
 /* ---------- Aller-retour ---------- */
 

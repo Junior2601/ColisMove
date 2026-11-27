@@ -118,14 +118,14 @@ function CookiePreferences({ initial, onSave, onClose }) {
  *  - le bandeau n'apparaît que si un outil facultatif est configuré (sinon, rien à demander)
  *  - aucun outil n'est chargé avant l'accord ; un refus vaut autant qu'un accord
  *  - "Gérer les cookies" (pied de page) rouvre les préférences à tout moment
- *  - catégorie « contextuelle » (recherche de vols en direct) : demandée sur sa page (grant), pas dans le bandeau
+ *  - catégorie « contextuelle » (recherche de billets d'avion) : demandée là où elle sert (grant), pas dans le bandeau
  */
 export function ConsentProvider({ children }) {
   const location = useLocation();
   const [consent, setConsent] = useState(readConsent);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const needed = BANNER_CATEGORIES.length > 0;
-  // Le bandeau a reçu une réponse : un accord donné sur une page (vols en direct) ne vaut pas réponse au bandeau
+  // Le bandeau a reçu une réponse : un accord donné sur une page (recherche de billets) ne vaut pas réponse au bandeau
   const decided = !needed || (consent !== null && BANNER_CATEGORIES.every((c) => c.key in consent.choices));
   const choicesKey = JSON.stringify(consent?.choices ?? {});
 
@@ -162,7 +162,7 @@ export function ConsentProvider({ children }) {
       decided,
       needed,
       openPreferences: () => setPreferencesOpen(true),
-      // Accord donné sur la page qui en a besoin (ex. « Afficher la recherche en direct »)
+      // Accord donné là où il sert (ex. « Afficher la recherche » de l'onglet Billets d'avion)
       grant: (key) => save({ ...(consent?.choices ?? {}), [key]: true }),
     }),
     [consent, decided, needed, save]

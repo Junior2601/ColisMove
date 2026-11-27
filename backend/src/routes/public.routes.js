@@ -36,7 +36,7 @@ router.get("/flights/search", flightSearchLimiter, validate({ query: searchFligh
 router.get("/flights/offers/:id", flightSearchLimiter, validate({ params: idParam }), flight.getOffer);
 // Demande d'achat (visiteur ou client connecté) → ouvre la conversation avec l'équipe MoveColis
 router.post("/flight-orders", reservationLimiter, validate({ body: createFlightOrderBody }), flight.createOrder);
-// Vol choisi dans la recherche en direct (page « Vols en direct ») : l'équipe confirme le vol et le prix ensuite
+// Vol choisi dans la recherche de billets (Aviasales en direct, onglet « Billets d'avion ») : l'équipe confirme le vol et le prix ensuite
 router.post(
   "/flight-orders/live",
   reservationLimiter,

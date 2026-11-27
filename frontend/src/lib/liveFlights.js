@@ -1,13 +1,15 @@
 // =========================================================
-//  Vols en direct : recherche Aviasales en temps réel (widget de marque blanche Travelpayouts)
-//  Le widget écrit la recherche dans l'adresse de la page (?flightSearch=MOW1112YAO1) et son bouton « Partager »
-//  copie le lien d'un billet (…&ticketId=39f1…). Il ne se charge qu'avec l'accord du visiteur (cookies d'Aviasales).
+//  Recherche de billets : Aviasales en temps réel (widget de marque blanche Travelpayouts), dans l'onglet
+//  « Billets d'avion » de l'accueil (/vols-en-direct). Le widget écrit la recherche dans l'adresse (?flightSearch=MOW1112YAO1)
+//  et son bouton « Partager » copie le lien d'un billet (…&ticketId=39f1…). Il ne se charge qu'avec l'accord du
+//  visiteur (cookies d'Aviasales).
 // =========================================================
 import { isIsoDate, todayIso } from "./flights";
 
+// Onglet « Billets d'avion » de l'accueil (le widget réécrit l'adresse en ne gardant que le chemin et ses paramètres)
 export const LIVE_FLIGHTS_PATH = "/vols-en-direct";
 export const LIVE_ORDER_PATH = "/vols-en-direct/payer";
-// Catégorie de cookies acceptée sur la page « Vols en direct » (config/cookies.js)
+// Catégorie de cookies acceptée à l'affichage de la recherche (config/cookies.js)
 export const LIVE_CONSENT_KEY = "liveFlights";
 
 // Widget créé dans le compte Travelpayouts de MoveColis pour movecolis.com (identifiant public, pas un secret)
@@ -105,7 +107,7 @@ export function parseFlightSearch(code, today = todayIso()) {
   return { origin, destination, date, returnDate, adults: Number(adults), children: Number(children), infants: Number(infants) };
 }
 
-/** Lien copié avec « Partager » → { search, ticketId } ; null si ce n'est pas un lien de la page « Vols en direct » */
+/** Lien copié avec « Partager » → { search, ticketId } ; null si ce n'est pas un lien de la recherche de MoveColis */
 export function parseShareLink(text) {
   let url;
   try {
@@ -113,14 +115,16 @@ export function parseShareLink(text) {
   } catch {
     return null;
   }
-  if (!["http:", "https:"].includes(url.protocol) || url.pathname.replace(/\/+$/, "") !== LIVE_FLIGHTS_PATH) return null;
+  // Onglet « Billets d'avion » (/vols-en-direct), ou accueil (lien d'avant l'adresse dédiée)
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  if (!["http:", "https:"].includes(url.protocol) || !["/", LIVE_FLIGHTS_PATH].includes(path)) return null;
   const search = url.searchParams.get("flightSearch") ?? "";
   const ticketId = url.searchParams.get("ticketId") ?? "";
   if (!/^[A-Za-z0-9]{8,60}$/.test(search)) return null;
   return { search, ticketId: /^[A-Za-z0-9]{8,64}$/.test(ticketId) ? ticketId : null };
 }
 
-/** Page « Vols en direct » sur une recherche (et un billet partagé) */
+/** Onglet « Billets d'avion » sur une recherche (et un billet partagé) */
 export function liveFlightsHref(search = null, ticketId = null) {
   if (!search) return LIVE_FLIGHTS_PATH;
   return `${LIVE_FLIGHTS_PATH}?flightSearch=${encodeURIComponent(search)}${ticketId ? `&ticketId=${encodeURIComponent(ticketId)}` : ""}`;

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { EyeOff, Eye, ExternalLink, Pencil, RotateCw, Search } from "lucide-react";
 import CityInput from "../flights/CityInput";
-import { AirlineLogo } from "../flights/FlightOfferCard";
+import AirlineLogo from "../flights/AirlineLogo";
 import {
   Badge, ErrorState, Field, Loader, Modal, Notice, Toast, btnOutline, btnPrimary, btnSm, inputClass,
 } from "../ui";

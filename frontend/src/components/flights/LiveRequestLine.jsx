@@ -2,7 +2,7 @@ import { ExternalLink } from "lucide-react";
 
 /**
  * Demande « vol choisi en direct » : le vol tel que décrit par le client (compagnie, heures et prix vus) et le lien
- * vers sa recherche sur la page « Vols en direct » (le billet exact s'il l'a partagé). Rien pour un billet de nos résultats.
+ * vers sa recherche dans l'onglet « Billets d'avion » (le billet exact s'il l'a partagé). Rien pour un billet de nos résultats.
  */
 export default function LiveRequestLine({ order }) {
   const live = order.liveRequest;

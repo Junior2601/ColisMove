@@ -54,7 +54,7 @@ function tripFrom(search) {
  * « Payer ce vol avec MoveColis » : le client décrit le vol trouvé dans la recherche en direct (lien « Partager »,
  * compagnie, heures, prix vu) et ses passagers. Une conversation s'ouvre : l'équipe retrouve le vol, confirme son
  * prix, puis le client paie en Mobile Money et reçoit son billet par e-mail.
- * Pré-rempli depuis l'adresse : ?flightSearch=MOW1112YAO1&ticketId=… (recherche en cours sur « Vols en direct »).
+ * Pré-rempli depuis l'adresse : ?flightSearch=MOW1112YAO1&ticketId=… (recherche en cours dans l'onglet « Billets d'avion »).
  */
 export default function LiveFlightOrder() {
   const [params] = useSearchParams();
@@ -244,7 +244,7 @@ export default function LiveFlightOrder() {
   const backLink = (
     <Link to={liveFlightsHref(params.get("flightSearch"), params.get("ticketId"))}
       className="inline-flex items-center gap-1.5 font-semibold underline text-sm mt-3 p-2 -ml-2">
-      <ArrowLeft size={16} /> Retour aux vols en direct
+      <ArrowLeft size={16} /> Retour à la recherche
     </Link>
   );
 
@@ -255,8 +255,7 @@ export default function LiveFlightOrder() {
   else if (!config.enabled) {
     blocker = (
       <Notice tone="warn">
-        L&apos;achat de billets par MoveColis n&apos;est pas disponible pour le moment. Vous pouvez acheter votre billet par carte
-        depuis la page Vols en direct (« Sélectionner », puis « Acheter »).
+        L&apos;achat de billets par MoveColis n&apos;est pas disponible pour le moment. Réessayez un peu plus tard.
       </Notice>
     );
   } else if (user && user.role !== "CLIENT") {
@@ -281,7 +280,7 @@ export default function LiveFlightOrder() {
 
         {blocker ?? (
           <form onSubmit={handleSubmit}>
-            <Card title="Le vol choisi" hint="Tel qu'affiché dans la recherche en direct.">
+            <Card title="Le vol choisi" hint="Tel qu'affiché dans la recherche de billets.">
               <Field
                 label="Lien du billet (conseillé)"
                 error={errors.shareLink}
@@ -305,7 +304,7 @@ export default function LiveFlightOrder() {
               )}
               {linkStatus === "invalid" && !errors.shareLink && (
                 <p className="text-xs text-danger font-semibold -mt-2 mb-3">
-                  Ce n&apos;est pas un lien copié avec « Partager » sur la page Vols en direct.
+                  Ce n&apos;est pas un lien copié avec « Partager » dans la recherche de billets de MoveColis.
                 </p>
               )}
               {linkStatus === "paste-denied" && (

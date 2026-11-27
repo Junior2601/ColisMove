@@ -8,8 +8,6 @@ import RequireRole from "./components/RequireRole";
 // Visiteur
 import Home from "./pages/visiteur/Home";
 import TripDetail from "./pages/visiteur/TripDetail";
-import FlightOffer from "./pages/visiteur/FlightOffer";
-import LiveFlights from "./pages/visiteur/LiveFlights";
 import LiveFlightOrder from "./pages/visiteur/LiveFlightOrder";
 import Tracking from "./pages/visiteur/Tracking";
 import { Login, Register } from "./pages/visiteur/Auth";
@@ -57,8 +55,9 @@ export default function App() {
               {/* ===== Visiteur (public) ===== */}
               <Route path="/" element={<Home />} />
               <Route path="/voyage/:id" element={<TripDetail />} />
-              <Route path="/billet/:id" element={<FlightOffer />} />
-              <Route path="/vols-en-direct" element={<LiveFlights />} />
+              {/* Billets d'avion : onglet de l'accueil (recherche Aviasales en direct) ; ancienne page d'un billet redirigée */}
+              <Route path="/vols-en-direct" element={<Home flightsPage />} />
+              <Route path="/billet/:id" element={<Navigate to="/vols-en-direct" replace />} />
               <Route path="/vols-en-direct/payer" element={<LiveFlightOrder />} />
               <Route path="/suivi" element={<Tracking />} />
               <Route path="/connexion" element={<Login />} />

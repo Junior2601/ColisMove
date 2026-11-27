@@ -88,7 +88,7 @@ const orderContact = {
 const timeField = z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Heure invalide (ex. 21:30).");
 
 /**
- * Vol choisi dans la recherche en direct (page « Vols en direct ») : trajet, jours, ce que le client a vu
+ * Vol choisi dans la recherche de billets (Aviasales en direct, onglet « Billets d'avion ») : trajet, jours, ce que le client a vu
  * (compagnie, heures, prix) et, s'il l'a copié avec « Partager », le lien du billet.
  */
 export const createLiveFlightOrderBody = z
